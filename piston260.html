@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E1545">
+<title>ピストン260</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg1:#1E1545; --bg2:#3B1A5E;
+  --card1:#47246F; --card2:#5A2581; --raise:rgba(255,255,255,.08); --line:rgba(255,255,255,.12);
+  --ink:#FFFFFF; --muted:#CBB7EA; --accent:#EE3DE0; --accent2:#FF6FB5; --accent-ink:#FFFFFF;
+  --accent-soft:rgba(238,61,224,.22);
+  color-scheme:dark; box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  background:var(--bg1);
+}
+*,*::before,*::after{box-sizing:inherit}
+html,body{min-height:100%}
+body{margin:0; color:var(--ink); background:linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 100%); min-height:100vh;
+  font-family:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif; line-height:1.5}
+main{max-width:32rem; margin:0 auto; padding:0 .85rem 1.5rem}
+.top{position:relative; padding:.9rem 5.2rem .6rem; text-align:center}
+.live{position:absolute; right:0; top:.95rem; font-size:.75rem; font-weight:700; white-space:nowrap; padding:.2rem .55rem; border-radius:999px; background:var(--raise)}
+h1{font-size:1.15rem; font-weight:700; margin:0}
+.title{font:inherit; font-weight:700; color:var(--ink); background:transparent; border:0; padding:.1rem .3rem; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; max-width:100%}
+.title #name{overflow-wrap:anywhere}
+.pen{color:var(--muted); font-weight:400; font-size:.85rem}
+.status{font-size:.72rem; color:var(--muted); margin:.05rem 0 0; min-height:1.2em}
+
+.card{background:linear-gradient(160deg,var(--card1),var(--card2)); border-radius:22px; box-shadow:0 8px 24px rgba(10,0,30,.35)}
+.wave{height:clamp(130px,22vh,190px); overflow:hidden; margin-bottom:.75rem}
+.wave canvas{display:block; width:100%; height:100%}
+.tempoCard{padding:1.1rem .9rem 1rem; margin-bottom:1rem}
+.tempo{display:grid; grid-template-columns:3.6rem 1fr 3.6rem; align-items:center; gap:.5rem}
+.pm{width:3.6rem; height:3.6rem; border-radius:50%; border:0; background:var(--raise); color:var(--ink);
+  display:grid; place-items:center; cursor:pointer; touch-action:manipulation; -webkit-user-select:none; user-select:none}
+.pm:active{background:var(--accent); color:var(--accent-ink)}
+.pm svg{width:24px; height:24px}
+.num{width:100%; min-width:0; text-align:center; background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--ink);
+  font-family:"Space Grotesk","Helvetica Neue",Arial,sans-serif; font-weight:700; font-size:clamp(3.4rem,18vw,4.8rem); line-height:1.05; letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums; padding:0; caret-color:var(--accent)}
+.num:focus{outline:none; border-bottom-color:var(--accent)}
+.unit{text-align:center; font-size:.8rem; color:var(--muted); margin-top:.1rem; font-variant-numeric:tabular-nums}
+.meta{display:flex; justify-content:center; align-items:center; gap:1rem; margin-top:.6rem; font-size:.95rem; font-variant-numeric:tabular-nums; min-height:2.1rem; flex-wrap:wrap}
+.meta .cnt{display:flex; align-items:center; gap:.45rem}
+.lamp{width:10px; height:10px; border-radius:50%; border:2px solid var(--accent); background:transparent; flex:none; transition:background .06s}
+.lamp.on{background:var(--accent)}
+.lamp.accent.on{box-shadow:0 0 0 5px var(--accent-soft)}
+.sub.cd{font-size:1.45rem; font-weight:700; color:var(--accent)}
+.time{color:var(--muted); font-family:"Space Grotesk","Helvetica Neue",Arial,sans-serif}
+
+.stopCard{padding:.8rem .9rem; margin-bottom:1rem}
+.as-head{display:flex; justify-content:space-between; align-items:baseline; font-size:.85rem; color:var(--muted); margin-bottom:.55rem}
+#asLeft{color:var(--ink); font-weight:700; font-variant-numeric:tabular-nums}
+.as-row{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap}
+.seg{display:inline-flex; background:rgba(0,0,0,.2); border-radius:999px; padding:3px}
+.seg button{font:inherit; font-size:.85rem; border:0; background:transparent; color:var(--muted); padding:.35rem .85rem; border-radius:999px; cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent); color:var(--accent-ink); font-weight:700}
+.as-val{display:flex; align-items:center; gap:.35rem; font-size:.9rem; color:var(--muted)}
+.as-val[hidden]{display:none}
+.as-val input{width:5.2rem; font:inherit; font-family:"Space Grotesk","Helvetica Neue",Arial,sans-serif; font-weight:700; font-size:1.1rem; text-align:center; color:var(--ink);
+  background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:12px; padding:.35rem .4rem}
+.as-val input:focus{outline:2px solid var(--accent); border-color:transparent}
+.rhythmHead{display:flex; justify-content:space-between; align-items:baseline; margin:0 .2rem .45rem; font-size:.85rem; color:var(--muted)}
+.rhythmHead b{color:var(--ink); font-weight:700}
+.rhythm{display:flex; gap:.6rem; overflow-x:auto; scroll-snap-type:x proximity; padding:.15rem .15rem .6rem; margin:0 -.15rem; scrollbar-width:none}
+.rhythm::-webkit-scrollbar{display:none}
+.pat{flex:none; width:7.6rem; scroll-snap-align:start; text-align:left; font:inherit; color:var(--ink); cursor:pointer;
+  border:2px solid transparent; border-radius:16px; padding:.55rem .6rem .5rem; background:linear-gradient(160deg,var(--card1),var(--card2))}
+.pat[aria-pressed="true"]{border-color:var(--accent); box-shadow:0 0 0 4px var(--accent-soft)}
+.pat .pn{font-size:.85rem; font-weight:700; display:block}
+.pat svg{display:block; width:100%; height:34px; margin-top:.25rem; overflow:visible}
+.pat .ln{fill:none; stroke:var(--accent2); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke}
+.pat[aria-pressed="true"] .ln{stroke:var(--accent)}
+.pat .head{fill:var(--accent); display:none}
+.pat[aria-pressed="true"] .head.live{display:block}
+
+.go{display:flex; align-items:center; justify-content:center; text-align:center; width:7.5rem; height:7.5rem; margin:1.1rem auto 1.4rem; border-radius:50%;
+  font:inherit; font-weight:700; font-size:1.05rem; padding:1rem; border:0; cursor:pointer; color:var(--accent-ink);
+  background:radial-gradient(circle at 35% 30%,#FF8BEA 0%,var(--accent) 45%,#B21FC4 100%);
+  box-shadow:0 0 0 10px var(--accent-soft), 0 12px 32px rgba(238,61,224,.45)}
+.go.stop{background:rgba(255,255,255,.95); color:#B21FC4; box-shadow:0 0 0 10px rgba(255,255,255,.12), 0 12px 32px rgba(10,0,30,.4)}
+
+.opts{display:grid; grid-template-columns:repeat(auto-fit,minmax(0,1fr)); gap:.4rem; padding:.6rem .4rem}
+.tile{display:flex; flex-direction:column; align-items:center; gap:.25rem; padding:.45rem .15rem; border-radius:14px; background:transparent; border:0;
+  color:var(--muted); font:inherit; font-size:.72rem; cursor:pointer; text-align:center}
+.tile svg{width:28px; height:28px}
+.tile[aria-pressed="true"], .tile:has(input:checked){color:var(--accent)}
+.vh{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--accent); outline-offset:2px}
+.note{font-size:.75rem; color:var(--muted); margin:1rem .2rem 0}
+.grand{display:flex; align-items:baseline; justify-content:center; gap:.35rem; flex-wrap:wrap; margin-top:.7rem; padding-top:.7rem; border-top:1px solid var(--line); font-size:.85rem; color:var(--muted)}
+.grand b{font-family:"Space Grotesk","Helvetica Neue",Arial,sans-serif; font-size:1.35rem; color:var(--ink); font-variant-numeric:tabular-nums}
+.reset{display:block; margin:.6rem auto 0; font:inherit; font-size:.85rem; color:var(--ink); background:var(--raise); border:0; border-radius:999px; padding:.4rem 1rem; cursor:pointer}
+.recs{margin-top:1.6rem; padding-top:1.2rem; border-top:1px solid var(--line)}
+.r-head{display:flex; justify-content:space-between; align-items:baseline; margin:0 .2rem .7rem; gap:.5rem; flex-wrap:wrap}
+.r-head h2{margin:0; font-size:1.05rem}
+.r-head span{font-size:.75rem; color:var(--muted); font-variant-numeric:tabular-nums}
+.r-add{padding:.9rem 1rem; margin-bottom:.6rem}
+.r-add summary{cursor:pointer; font-weight:700; list-style:none; display:flex; justify-content:space-between; align-items:center}
+.r-add summary::-webkit-details-marker{display:none}
+.r-add summary::after{content:"＋"; color:var(--accent2); font-size:1.1rem}
+.r-add[open] summary::after{content:"−"}
+.r-form{display:grid; gap:.7rem; margin-top:.9rem}
+.r-form label{display:grid; gap:.25rem; font-size:.8rem; color:var(--muted)}
+.r-form input{font:inherit; font-size:1rem; color:var(--ink); background:rgba(0,0,0,.18); border:1px solid var(--line); border-radius:12px; padding:.6rem .7rem; width:100%}
+.r-form input:focus{outline:2px solid var(--accent); border-color:transparent}
+.r-row2{display:grid; grid-template-columns:1fr 1fr; gap:.6rem}
+.r-btn{font:inherit; font-weight:700; border:0; border-radius:999px; padding:.7rem 1.2rem; cursor:pointer; color:#fff;
+  background:radial-gradient(circle at 35% 30%,#FF8BEA 0%,var(--accent) 50%,#B21FC4 100%)}
+.r-day{font-size:.8rem; color:var(--muted); margin:1rem .3rem .4rem; display:flex; justify-content:space-between}
+.r-item{display:grid; grid-template-columns:1fr auto; gap:.3rem .8rem; padding:.8rem .9rem; margin-bottom:.5rem}
+.r-cnt{font-family:"Space Grotesk","Helvetica Neue",Arial,sans-serif; font-weight:700; font-size:1.3rem; font-variant-numeric:tabular-nums}
+.r-cnt small{font-family:"Zen Kaku Gothic New",sans-serif; font-size:.8rem; font-weight:400; margin-left:.15rem}
+.r-info{grid-column:1/-1; font-size:.78rem; color:var(--muted); font-variant-numeric:tabular-nums}
+.r-memo{grid-column:1/-1; font-size:.85rem; overflow-wrap:anywhere}
+.r-acts{display:flex; gap:.35rem; align-items:start}
+.r-acts button{font:inherit; font-size:.75rem; border:0; border-radius:999px; padding:.3rem .65rem; cursor:pointer; color:var(--ink); background:var(--raise)}
+.r-empty{text-align:center; color:var(--muted); font-size:.9rem; padding:1.5rem 0}
+.r-tools{display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap; margin-top:1rem}
+.r-ghost{font:inherit; font-size:.85rem; border:0; border-radius:999px; padding:.45rem .9rem; cursor:pointer; color:var(--ink); background:var(--raise)}
+@media (prefers-reduced-motion:reduce){.lamp{transition:none}}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <span class="live" aria-label="起動中">🟢起動中</span>
+    <h1><button class="title" id="title" type="button" aria-label="名称を変更"><span id="name">ピストン260</span><span class="pen" aria-hidden="true">✎</span></button></h1>
+    <p class="status" id="status">接続しています…</p>
+  </header>
+
+  <section class="card wave" aria-hidden="true"><canvas id="wave"></canvas></section>
+
+  <section class="card tempoCard">
+    <div class="tempo">
+      <button class="pm" id="minus" type="button" aria-label="1回減らす"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M8 16h16"/></svg></button>
+      <input class="num" id="bpm" type="text" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" autocomplete="off" value="260" aria-label="ピストン回数（回／分）。タップして入力">
+      <button class="pm" id="plus" type="button" aria-label="1回増やす"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M8 16h16M16 8v16"/></svg></button>
+    </div>
+    <div class="unit" id="unit">ピストン 回／分</div>
+    <div class="meta">
+      <span class="cnt"><span class="lamp" id="lamp"></span><span class="sub" id="count">停止中</span></span>
+      <span class="time" id="time">経過 0:00</span>
+    </div>
+    <button class="reset" id="reset260" type="button">260に戻す</button>
+    <div class="grand"><span>総ピストン回数</span><b id="grand">0</b><span>回</span></div>
+  </section>
+
+  <section class="card stopCard" aria-label="自動ストップ">
+    <div class="as-head"><span>自動ストップ</span><span id="asLeft"></span></div>
+    <div class="as-row">
+      <div class="seg" role="group" aria-label="自動ストップの種類">
+        <button type="button" data-l="none" aria-pressed="true">なし</button>
+        <button type="button" data-l="time" aria-pressed="false">時間</button>
+        <button type="button" data-l="count" aria-pressed="false">回数</button>
+      </div>
+      <label class="as-val" id="asValWrap" hidden><input id="asVal" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="自動ストップの値"><span id="asUnit">分</span></label>
+    </div>
+  </section>
+
+  <div class="rhythmHead"><span>リズム</span><b id="patName">一定</b></div>
+  <div class="rhythm" id="rhythm" role="group" aria-label="リズムを選ぶ"></div>
+
+  <button class="go" id="go">スタート</button>
+
+  <p class="note">ピストンの速度は、−＋ を長押しすることで変更できます。また、数字をタップすると直接入力できます。</p>
+
+  <section class="recs" id="records" aria-labelledby="recTitle">
+    <div class="r-head"><h2 id="recTitle">記録</h2><span id="rStats"></span></div>
+    <details class="card r-add" id="rAddBox">
+      <summary>手入力で追加</summary>
+      <div class="r-form">
+        <label>日時<input type="datetime-local" id="rAt"></label>
+        <div class="r-row2">
+          <label>ピストン回数<input type="text" id="rCount" inputmode="numeric" placeholder="例：300"></label>
+          <label>時間（分）<input type="text" id="rMin" inputmode="decimal" placeholder="任意"></label>
+        </div>
+        <label>メモ<input type="text" id="rMemo" maxlength="80" placeholder="任意"></label>
+        <button class="r-btn" id="rAdd" type="button">追加する</button>
+      </div>
+    </details>
+    <div id="rList"></div>
+    <div class="r-tools">
+      <button class="r-ghost" id="rCsv" type="button">CSVで保存</button>
+      <button class="r-ghost" id="rClear" type="button">すべて削除</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const MIN = 20, MAX = 600, DEFAULT_BPM = 260, DEFAULT_NAME = "ピストン260";
+  const $ = id => document.getElementById(id);
+  const el = { bpm:$("bpm"), lamp:$("lamp"), count:$("count"), go:$("go"), status:$("status") };
+
+  // ---------- rhythm patterns: speed multiplier m(u) over one cycle (u = 0..1) ----------
+  const RAND = [0.8, 1.25, 0.7, 1.35, 1.0, 1.4, 0.65, 1.15];
+  const PATTERNS = [
+    { id:"steady", name:"一定",         cyc:20000, m:u => 1 },
+    { id:"wave",   name:"波",           cyc:16000, m:u => 1 + 0.4 * Math.sin(2 * Math.PI * u) },
+    { id:"ramp",   name:"だんだん速く", cyc:20000, m:u => 0.6 + 0.8 * u },
+    { id:"saw",    name:"ギザギザ",     cyc:12000, m:u => 0.7 + 0.6 * ((u * 4) % 1) },
+    { id:"burst",  name:"緩急",         cyc:20000, m:u => u < 0.6 ? 0.7 : 1.45 },
+    { id:"climb",  name:"ゆっくり上昇", cyc:60000, m:u => u < 0.8 ? 0.6 + u : 1.4 },
+    { id:"random", name:"ランダム",     cyc:16000, m:u => RAND[Math.floor(u * RAND.length) % RAND.length] },
+  ];
+  const BYID = {};
+  const N = 2000;
+  PATTERNS.forEach(p => {   // cumulative integral table so every device computes identical beat times
+    const cum = new Float64Array(N + 1), dt = p.cyc / N;
+    for(let i = 0; i < N; i++) cum[i + 1] = cum[i] + Math.max(0.3, p.m((i + 0.5) / N)) * dt;
+    p.cum = cum; p.total = cum[N]; BYID[p.id] = p;
+  });
+  const pat = () => BYID[state.pat] || BYID.steady;
+  function M(x){ // integral of the multiplier from the start (ms)
+    const p = pat(); if(x <= 0) return x;
+    const k = Math.floor(x / p.cyc), r = x - k * p.cyc, f = r / p.cyc * N, i = Math.min(N - 1, Math.floor(f));
+    return k * p.total + p.cum[i] + (p.cum[i + 1] - p.cum[i]) * (f - i);
+  }
+  function Minv(y){
+    const p = pat(); if(y <= 0) return y;
+    const k = Math.floor(y / p.total), r = y - k * p.total;
+    let lo = 0, hi = N;
+    while(hi - lo > 1){ const mid = (lo + hi) >> 1; if(p.cum[mid] <= r) lo = mid; else hi = mid; }
+    const seg = p.cum[lo + 1] - p.cum[lo];
+    return k * p.cyc + (lo + (seg > 0 ? (r - p.cum[lo]) / seg : 0)) * p.cyc / N;
+  }
+  const mult = t => { const p = pat(), x = t - state.go; return x < 0 ? 1 : Math.max(0.3, p.m((x % p.cyc) / p.cyc)); };
+
+  // ---------- room (the part after # in the link) ----------
+  const ROOM_KEY = "piston-room:" + location.pathname;
+  const okRoom = r => !!r && /^[A-Za-z0-9_-]{8,64}$/.test(r);
+  let room = new URLSearchParams(location.hash.slice(1)).get("room");
+  if(!okRoom(room)){ try{ const saved = localStorage.getItem(ROOM_KEY); if(okRoom(saved)){ room = saved; history.replaceState(null, "", "#room=" + room); } }catch(e){} }
+  if(!okRoom(room)){
+    const a = new Uint8Array(12); crypto.getRandomValues(a);
+    room = "p260-" + Array.from(a, x => "abcdefghijkmnpqrstuvwxyz23456789"[x % 32]).join("");
+    history.replaceState(null, "", "#room=" + room);
+  }
+  try{ localStorage.setItem(ROOM_KEY, room); }catch(e){} // reopen the same room next time
+  const TOPIC = "https://ntfy.sh/" + room;
+
+  let state = { bpm: DEFAULT_BPM, running: false, startAt: 0, bps: 1, base: 0, go: 0, dur: 0, name: DEFAULT_NAME, pat: "steady", lim: "none", limV: 0, v: 0 };
+
+  // ---------- beat timing (segment = since last tempo/rhythm change) ----------
+  const rate = () => state.bpm / 60000;
+  const segOff = () => M(state.startAt - state.go);
+  const beatTime = n => state.go + Minv(segOff() + n / rate());
+  const beatPhase = t => (M(t - state.go) - segOff()) * rate();
+
+  // ---------- audio ----------
+  let ctx = null, keepAlive = null;
+  function silentWav(){
+    const n = 4410, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+    const w = (o, s) => { for(let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, "data"); v.setUint32(40, n * 2, true);
+    return URL.createObjectURL(new Blob([b], { type: "audio/wav" }));
+  }
+  function ensureAudio(){
+    try{ if(navigator.audioSession) navigator.audioSession.type = "playback"; }catch(e){}
+    try{
+      if(!keepAlive){ keepAlive = new Audio(silentWav()); keepAlive.loop = true; keepAlive.setAttribute("playsinline", ""); }
+      const p = keepAlive.play(); if(p && p.catch) p.catch(() => {});
+    }catch(e){}
+    try{
+      if(!ctx){ const AC = window.AudioContext || window.webkitAudioContext; if(AC) ctx = new AC(); }
+      if(ctx){
+        if(ctx.state !== "running") ctx.resume();
+        const s = ctx.createBufferSource(); s.buffer = ctx.createBuffer(1, 1, 22050);
+        s.connect(ctx.destination); s.start(0);
+      }
+    }catch(e){}
+  }
+  function click(at, level){
+    if(!ctx) return;
+    const strong = !!level;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = level === -1 ? 660 : level === 2 ? 1800 : level ? 1300 : 900;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(strong ? 0.9 : 0.6, at + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
+    o.connect(g).connect(ctx.destination);
+    o.start(at); o.stop(at + 0.07);
+  }
+
+  // ---------- scheduler ----------
+  let nextBeat = 0, genKey = "", lastT = 0;
+  let cdKey = "", cdDone = {};
+  function countdown(now){
+    if(!state.go || now >= state.go) return;
+    if(cdKey !== String(state.go)){ cdKey = String(state.go); cdDone = {}; }
+    for(const k of [3, 2, 1]){
+      const t = state.go - k * 1000;
+      if(cdDone[k] || t >= now + 150) continue;
+      cdDone[k] = true;
+      if(t < now - 20) continue;
+      if(ctx) click(ctx.currentTime + Math.max(0, (t - Date.now()) / 1000), -1);
+      setTimeout(() => {
+        if(!state.running || String(state.go) !== cdKey) return;
+        el.count.textContent = "開始まで " + k; el.count.classList.add("cd");
+        el.lamp.classList.add("on"); setTimeout(() => el.lamp.classList.remove("on"), 120);
+      }, Math.max(0, t - Date.now()));
+    }
+  }
+  // ---------- auto stop: every device computes the same stop moment ----------
+  function stopAt(){
+    if(!state.running || !(state.limV > 0)) return 0;
+    if(state.lim === "time") return state.go + state.limV * 60000;
+    if(state.lim === "count"){
+      const k = (Math.round(state.limV) - state.base) * state.bps;
+      return k <= 0 ? state.startAt : beatTime(k);
+    }
+    return 0;
+  }
+  function autoStop(at){
+    const ph = at <= state.startAt ? 0 : Math.ceil(beatPhase(at) - 1e-9);
+    const strokes = state.base + Math.ceil(ph / state.bps);
+    const prev = state;
+    state = { ...state, running: false, startAt: 0, go: 0, base: strokes, dur: Math.max(0, Math.round(at - prev.go)), v: prev.v + 0.5 };
+    afterChange(prev); render();
+    if(ctx){ click(ctx.currentTime + 0.02, -1); click(ctx.currentTime + 0.22, -1); }
+    el.status.textContent = "自動ストップしました";
+  }
+  function tick(){
+    if(!state.running) return;
+    const now = Date.now();
+    const sa = stopAt();
+    if(sa && now >= sa){ autoStop(sa); return; }
+    countdown(now);
+    const key = [state.startAt, state.bpm, state.bps, state.pat, state.go].join(":");
+    if(key !== genKey){ genKey = key; nextBeat = now <= state.startAt ? 0 : Math.max(0, Math.ceil(beatPhase(now))); }
+    const horizon = now + 150;
+    for(let guard = 0; guard < 50; guard++){
+      const t = beatTime(nextBeat);
+      if(t >= horizon || (sa && t >= sa - 1)) break;
+      const n = nextBeat, bps = state.bps;
+      const level = (bps === 2 && n % 2 === 0) ? 1 : 0;
+      if(t >= now - 20 && t > lastT + 5){
+        lastT = t;
+        if(ctx) click(ctx.currentTime + Math.max(0, (t - Date.now()) / 1000), level);
+        setTimeout(() => flash(n, level, bps), Math.max(0, t - Date.now()));
+      }
+      nextBeat++;
+    }
+  }
+  setInterval(tick, 25);
+
+  function flash(n, level, bps){
+    if(!state.running) return;
+    el.lamp.classList.toggle("accent", level > 0);
+    el.lamp.classList.add("on");
+    setTimeout(() => el.lamp.classList.remove("on"), Math.min(90, 60000 / (state.bpm * mult(Date.now())) * 0.45));
+    el.count.classList.remove("cd");
+    const total = state.base + Math.floor(n / bps) + 1;
+    el.count.textContent = "合計 " + total + " 回" + (bps === 2 ? "・" + (n % 2 === 0 ? "押す" : "引く") : "");
+  }
+
+  // ---------- rhythm bar ----------
+  const NS = "http://www.w3.org/2000/svg";
+  const patEls = {};
+  PATTERNS.forEach(p => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "pat"; b.setAttribute("aria-pressed", "false");
+    const nm = document.createElement("span"); nm.className = "pn"; nm.textContent = p.name;
+    const svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", "0 0 100 34"); svg.setAttribute("preserveAspectRatio", "none");
+    const pts = []; for(let i = 0; i <= 100; i++){ const m = Math.max(0.3, p.m(Math.min(0.9999, i / 100))); pts.push(i + "," + (31 - (m - 0.3) / 1.3 * 28).toFixed(1)); }
+    const ln = document.createElementNS(NS, "polyline"); ln.setAttribute("class", "ln"); ln.setAttribute("points", pts.join(" "));
+    const hd = document.createElementNS(NS, "circle"); hd.setAttribute("class", "head"); hd.setAttribute("r", "3.5");
+    svg.append(ln, hd); b.append(nm, svg);
+    b.addEventListener("click", () => setPattern(p.id));
+    $("rhythm").appendChild(b);
+    patEls[p.id] = { btn: b, head: hd };
+  });
+  function moveHead(now){
+    const p = pat(), e = patEls[p.id];
+    const live = state.running && now >= state.go;
+    e.head.classList.toggle("live", live);
+    if(!live) return;
+    const u = ((now - state.go) % p.cyc) / p.cyc;
+    const m = Math.max(0.3, p.m(u));
+    e.head.setAttribute("cx", (u * 100).toFixed(1));
+    e.head.setAttribute("cy", (31 - (m - 0.3) / 1.3 * 28).toFixed(1));
+  }
+
+  // ---------- render ----------
+  function render(){
+    $("name").textContent = state.name;
+    document.title = state.name;
+    const strokes = state.bpm / state.bps;
+    if(document.activeElement !== el.bpm) el.bpm.value = strokes;
+    PATTERNS.forEach(p => patEls[p.id].btn.setAttribute("aria-pressed", String(p.id === pat().id)));
+    $("patName").textContent = pat().name;
+    document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.l === state.lim)));
+    $("asValWrap").hidden = state.lim === "none";
+    $("asUnit").textContent = state.lim === "time" ? "分" : "回";
+    if(document.activeElement !== $("asVal")) $("asVal").value = state.lim === "none" ? "" : String(state.limV);
+    el.go.textContent = state.running ? "ストップ" : "スタート";
+    el.go.classList.toggle("stop", state.running);
+    if(!state.running){ el.count.classList.remove("cd"); el.count.textContent = state.base > 0 ? "停止中（合計 " + state.base + " 回）" : "停止中"; el.lamp.classList.remove("on"); }
+    else if(Date.now() < state.go - 3000){ el.count.textContent = "まもなく開始"; }
+    showTime();
+    wake(state.running);
+  }
+
+  // ---------- records (kept on this device) ----------
+  const REC_KEY = "piston-records-v1";
+  function loadRecs(){ try{ const a = JSON.parse(localStorage.getItem(REC_KEY) || "[]"); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+  function saveRecs(a){ try{ localStorage.setItem(REC_KEY, JSON.stringify(a)); }catch(e){} }
+  let recSum = 0;
+  function refreshSum(){ recSum = loadRecs().reduce((s, x) => s + (Number(x.strokes) || 0), 0); }
+  function afterChange(prev){
+    if(prev.running && !state.running && state.base > 0 && prev.go){
+      const a = loadRecs(), id = "s" + prev.go;
+      if(!a.some(x => x.id === id)){
+        a.push({ id, at: prev.go, strokes: state.base, dur: state.dur, bpm: prev.bpm / prev.bps,
+                 pat: (BYID[prev.pat] || BYID.steady).name, page: state.name, memo: "" });
+        saveRecs(a);
+      }
+      refreshSum();
+      if(typeof rRender === "function") setTimeout(rRender, 0);
+    }
+  }
+  window.addEventListener("storage", e => { if(e.key === REC_KEY) refreshSum(); });
+  document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") refreshSum(); });
+  refreshSum();
+
+  // ---------- sync (ntfy.sh) ----------
+  let sending = Promise.resolve();
+  function send(s){
+    sending = sending.then(() => fetch(TOPIC, { method: "POST", body: JSON.stringify(s) }))
+      .then(r => { if(r && !r.ok) throw new Error(r.status); })
+      .catch(() => { el.status.textContent = "送信できませんでした。通信状態を確認してください"; });
+  }
+  let sendTimer = null;
+  function apply(next){
+    next.v = Date.now();
+    const prev = state; state = next; afterChange(prev); render();
+    clearTimeout(sendTimer); // bundle rapid changes (e.g. holding + or −) into one message
+    sendTimer = setTimeout(() => send(state), 250);
+  }
+  const toHalfNum = x => String(x).replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[^0-9.]/g, "");
+  function cleanName(x){ return typeof x === "string" ? x.replace(/\s+/g, " ").trim().slice(0, 30) : ""; }
+  function receive(raw){
+    let d; try{ d = JSON.parse(raw); }catch(e){ return; }
+    if(!d || typeof d !== "object") return;
+    const v = Number(d.v) || 0;
+    if(v < state.v) return;
+    const bps = d.bps === 2 ? 2 : 1;
+    const next = { bpm: fit(Math.round(Number(d.bpm) || DEFAULT_BPM), bps), running: !!d.running,
+                   startAt: Number(d.startAt) || 0, bps, base: Math.max(0, Math.floor(Number(d.base) || 0)),
+                   go: Number(d.go) || Number(d.startAt) || 0, dur: Math.max(0, Number(d.dur) || 0),
+                   name: cleanName(d.name) || DEFAULT_NAME, pat: BYID[d.pat] ? d.pat : "steady",
+                   lim: d.lim === "time" || d.lim === "count" ? d.lim : "none", limV: Math.max(0, Number(d.limV) || 0), v };
+    const keys = ["bpm","running","startAt","bps","base","go","dur","name","pat","lim","limV"];
+    if(keys.some(k => next[k] !== state[k])){ const prev = state; state = next; afterChange(prev); render(); } else state.v = v;
+  }
+  function connect(){
+    if(!window.EventSource){ el.status.textContent = "このブラウザでは共有できません"; return; }
+    const es = new EventSource(TOPIC + "/sse?since=all");
+    es.onopen = () => { el.status.textContent = "共有中：このリンクを開いている全員にそろって反映されます"; };
+    es.onmessage = e => {
+      let m; try{ m = JSON.parse(e.data); }catch(err){ return; }
+      if(m.event === "message" && m.message) receive(m.message);
+    };
+    es.onerror = () => { el.status.textContent = "再接続しています…"; };
+  }
+
+  // ---------- changes keep the total and start at the next stroke ----------
+  function carry(){
+    const now = Date.now();
+    if(!state.running || now < state.startAt) return { startAt: state.startAt, base: state.base };
+    const k = Math.ceil(beatPhase(now) / state.bps) * state.bps;
+    return { startAt: Math.round(beatTime(k)), base: state.base + k / state.bps };
+  }
+  function doneStrokes(){
+    const now = Date.now();
+    if(!state.running || now < state.startAt) return state.base;
+    return state.base + Math.floor(beatPhase(now) / state.bps) + 1;
+  }
+  function fit(v, bps){
+    const lo = Math.ceil(MIN / bps) * bps, hi = Math.floor(MAX / bps) * bps;
+    return Math.min(hi, Math.max(lo, Math.round(v / bps) * bps));
+  }
+  function setBpm(v){
+    v = fit(v, state.bps);
+    if(v === state.bpm) return;
+    apply({ ...state, bpm: v, ...carry() });
+  }
+  function setMode(b){
+    if(b === state.bps) return;
+    apply({ ...state, bps: b, bpm: fit(state.bpm / state.bps * b, b), ...carry() });
+  }
+  function setPattern(id){
+    if(id === state.pat) return;
+    const c = carry();             // computed with the old rhythm
+    apply({ ...state, ...c, pat: id });
+  }
+
+  // − / + : tap for 1, hold to repeat (speeds up after a while)
+  function stepBy(d){ setBpm(state.bpm + d * state.bps); }
+  function holdButton(btn, d){
+    let wait = null, rep = null, n = 0;
+    const stop = () => { clearTimeout(wait); clearInterval(rep); wait = rep = null; };
+    btn.addEventListener("pointerdown", e => {
+      e.preventDefault(); ensureAudio(); stepBy(d); n = 0;
+      wait = setTimeout(() => { rep = setInterval(() => { n++; stepBy(n > 12 ? d * 5 : d); }, 110); }, 450);
+    });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(ev => btn.addEventListener(ev, stop));
+    btn.addEventListener("contextmenu", e => e.preventDefault());
+    btn.addEventListener("keydown", e => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); stepBy(d); } });
+  }
+  holdButton($("minus"), -1); holdButton($("plus"), 1);
+
+  function commitNumber(){
+    const raw = el.bpm.value.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "");
+    const n = parseInt(raw, 10);
+    if(!isNaN(n)) setBpm(n * state.bps);
+    el.bpm.value = state.bpm / state.bps;
+  }
+  el.bpm.addEventListener("focus", () => el.bpm.select());
+  el.bpm.addEventListener("change", commitNumber);
+  el.bpm.addEventListener("blur", commitNumber);
+  el.bpm.addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); el.bpm.blur(); } });
+
+  el.go.addEventListener("click", () => {
+    ensureAudio();
+    if(state.running){
+      const now = Date.now();
+      apply({ ...state, running: false, startAt: 0, base: doneStrokes(), dur: state.go && now > state.go ? now - state.go : 0, go: 0 });
+    }else{
+      const go = Date.now() + 3800; // 3-2-1 countdown, then the first stroke
+      apply({ ...state, running: true, startAt: go, go, base: 0, dur: 0 });
+    }
+  });
+  const LIM_DEFAULT = { time: 10, count: 500 };
+  document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    const l = b.dataset.l; if(l === state.lim) return;
+    apply({ ...state, lim: l, limV: l === "none" ? 0 : LIM_DEFAULT[l] });
+  }));
+  function commitLimit(){
+    if(state.lim === "none") return;
+    const raw = parseFloat(toHalfNum($("asVal").value));
+    let v = state.lim === "time" ? Math.round(raw * 10) / 10 : Math.round(raw);
+    if(!(v > 0)){ $("asVal").value = String(state.limV); return; }
+    v = Math.min(state.lim === "time" ? 600 : 1000000, v);
+    if(v !== state.limV) apply({ ...state, limV: v }); else $("asVal").value = String(v);
+  }
+  $("asVal").addEventListener("change", commitLimit);
+  $("asVal").addEventListener("blur", commitLimit);
+  $("asVal").addEventListener("focus", () => $("asVal").select());
+  $("asVal").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); $("asVal").blur(); } });
+  $("reset260").addEventListener("click", () => { ensureAudio(); setBpm(260 * state.bps); });
+  $("title").addEventListener("click", () => {
+    const input = prompt("名称を入力してください（30文字まで）", state.name);
+    if(input === null) return;
+    const name = cleanName(input) || DEFAULT_NAME;
+    if(name !== state.name) apply({ ...state, name });
+  });
+  document.addEventListener("pointerdown", ensureAudio);
+  document.addEventListener("touchend", ensureAudio);
+
+  // ---------- keep screen awake ----------
+  let lock = null;
+  async function wake(on){
+    try{
+      if(on && !lock && navigator.wakeLock){ lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => lock = null); }
+      if(!on && lock){ await lock.release(); lock = null; }
+    }catch(e){}
+  }
+  document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") wake(state.running); });
+
+  // ---------- elapsed time & current speed ----------
+  function fmt(ms){
+    const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, sec = t % 60;
+    const ss = String(sec).padStart(2, "0");
+    return h ? h + ":" + String(m).padStart(2, "0") + ":" + ss : m + ":" + ss;
+  }
+  function showTime(){
+    const now = Date.now();
+    const ms = state.running ? Math.max(0, now - state.go) : state.dur;
+    $("time").textContent = "経過 " + fmt(ms);
+    let left = "";
+    if(state.lim !== "none" && state.limV > 0){
+      if(state.lim === "time"){
+        const rem = state.running ? Math.max(0, state.go + state.limV * 60000 - Math.max(now, state.go)) : state.limV * 60000;
+        left = "残り " + fmt(rem + 999);
+      }else{
+        const done = state.running ? doneStrokes() : 0;
+        left = "残り " + Math.max(0, Math.round(state.limV) - done).toLocaleString("ja-JP") + " 回";
+      }
+    }
+    $("asLeft").textContent = left;
+    $("grand").textContent = (recSum + (state.running ? doneStrokes() : 0)).toLocaleString("ja-JP");
+    const varying = state.pat !== "steady" && state.running && now >= state.go;
+    $("unit").textContent = "ピストン 回／分" + (state.bps === 2 ? "（" + state.bpm + " 拍／分）" : "")
+      + (varying ? "・いま " + Math.round(state.bpm / state.bps * mult(now)) : "");
+  }
+  setInterval(showTime, 250);
+
+  // ---------- waveform ----------
+  const cv = $("wave"), g2 = cv.getContext("2d");
+  const WINDOW = 3000, samples = [];
+  function sizeCanvas(){
+    const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d));
+  }
+  window.addEventListener("resize", sizeCanvas); sizeCanvas();
+  function position(now){
+    if(!state.running || now < state.startAt) return 0;
+    return Math.sin(2 * Math.PI * beatPhase(now) / state.bps);
+  }
+  function draw(){
+    const now = Date.now();
+    samples.push([now, position(now)]);
+    while(samples.length && samples[0][0] < now - WINDOW) samples.shift();
+    const w = cv.width, h = cv.height, d = window.devicePixelRatio || 1;
+    const headX = w * 0.62, amp = h * 0.32, mid = h / 2;
+    g2.clearRect(0, 0, w, h);
+    g2.strokeStyle = "rgba(255,255,255,.08)"; g2.lineWidth = 1 * d;
+    g2.beginPath(); g2.moveTo(0, mid); g2.lineTo(w, mid); g2.stroke();
+    const grad = g2.createLinearGradient(0, 0, headX, 0);
+    grad.addColorStop(0, "rgba(255,111,181,.25)"); grad.addColorStop(1, "#EE3DE0");
+    g2.strokeStyle = grad; g2.lineWidth = 3 * d; g2.lineJoin = "round"; g2.lineCap = "round";
+    g2.beginPath();
+    samples.forEach(([t, y], i) => {
+      const x = headX - (now - t) / WINDOW * headX, yy = mid - y * amp;
+      i ? g2.lineTo(x, yy) : g2.moveTo(x, yy);
+    });
+    g2.stroke();
+    const last = samples[samples.length - 1];
+    g2.fillStyle = "#EE3DE0";
+    g2.beginPath(); g2.arc(headX, mid - last[1] * amp, 6 * d, 0, Math.PI * 2); g2.fill();
+    moveHead(now);
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  // ---------- record list (below the note) ----------
+  const pad2 = n => String(n).padStart(2, "0");
+  const numJ = x => (Number(x) || 0).toLocaleString("ja-JP");
+  const toHalf = x => String(x).replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const WD = "日月火水木金土";
+  function rRender(){
+    const a = loadRecs().sort((x, y) => y.at - x.at);
+    const durSum = a.reduce((s, x) => s + (Number(x.dur) || 0), 0);
+    $("rStats").textContent = a.length ? a.length + " 件・合計時間 " + fmt(durSum) : "";
+    const list = $("rList"); list.textContent = "";
+    if(!a.length){ const p = document.createElement("p"); p.className = "r-empty"; p.textContent = "まだ記録がありません。ストップを押すと自動で記録されます。"; list.append(p); return; }
+    let lastDay = "", head = null, daySum = 0;
+    const closeDay = () => { if(head) head.lastChild.textContent = numJ(daySum) + " 回"; };
+    a.forEach(r => {
+      const d = new Date(r.at);
+      const day = d.getFullYear() + "/" + (d.getMonth() + 1) + "/" + d.getDate() + "（" + WD[d.getDay()] + "）";
+      if(day !== lastDay){
+        closeDay(); lastDay = day; daySum = 0;
+        head = document.createElement("div"); head.className = "r-day";
+        const l = document.createElement("span"); l.textContent = day;
+        head.append(l, document.createElement("span")); list.append(head);
+      }
+      daySum += Number(r.strokes) || 0;
+      const it = document.createElement("div"); it.className = "card r-item";
+      const c = document.createElement("div"); c.className = "r-cnt"; c.textContent = numJ(r.strokes);
+      const sm = document.createElement("small"); sm.textContent = "回"; c.append(sm);
+      const acts = document.createElement("div"); acts.className = "r-acts";
+      const eb = document.createElement("button"); eb.type = "button"; eb.textContent = "メモ"; eb.onclick = () => rMemo(r.id);
+      const db = document.createElement("button"); db.type = "button"; db.textContent = "削除"; db.onclick = () => rDel(r.id);
+      acts.append(eb, db);
+      const info = document.createElement("div"); info.className = "r-info";
+      const parts = [pad2(d.getHours()) + ":" + pad2(d.getMinutes())];
+      if(r.dur > 0){ parts.push(fmt(r.dur)); parts.push("平均 " + Math.round(r.strokes / (r.dur / 60000)) + " 回／分"); }
+      if(r.pat) parts.push(r.pat);
+      if(r.page) parts.push(r.page);
+      if(r.manual) parts.push("手入力");
+      info.textContent = parts.join("・");
+      it.append(c, acts, info);
+      if(r.memo){ const m = document.createElement("div"); m.className = "r-memo"; m.textContent = r.memo; it.append(m); }
+      list.append(it);
+    });
+    closeDay();
+  }
+  function recsChanged(){ refreshSum(); rRender(); showTime(); }
+  function rDel(id){
+    if(!confirm("この記録を削除しますか？")) return;
+    saveRecs(loadRecs().filter(x => x.id !== id)); recsChanged();
+  }
+  function rMemo(id){
+    const a = loadRecs(), r = a.find(x => x.id === id); if(!r) return;
+    const m = prompt("メモ（80文字まで）", r.memo || ""); if(m === null) return;
+    r.memo = m.trim().slice(0, 80); saveRecs(a); recsChanged();
+  }
+  function localNow(){ const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); }
+  $("rAt").value = localNow();
+  $("rAdd").addEventListener("click", () => {
+    const count = parseInt(toHalf($("rCount").value).replace(/[^0-9]/g, ""), 10);
+    if(!(count > 0)){ alert("ピストン回数を入力してください"); $("rCount").focus(); return; }
+    const at = $("rAt").value ? new Date($("rAt").value).getTime() : Date.now();
+    const min = parseFloat(toHalf($("rMin").value));
+    const a = loadRecs();
+    a.push({ id: "m" + Date.now(), at: isNaN(at) ? Date.now() : at, strokes: count, dur: min > 0 ? Math.round(min * 60000) : 0,
+             memo: $("rMemo").value.trim().slice(0, 80), manual: true });
+    saveRecs(a);
+    $("rCount").value = ""; $("rMin").value = ""; $("rMemo").value = ""; $("rAt").value = localNow();
+    $("rAddBox").open = false; recsChanged();
+  });
+  $("rCsv").addEventListener("click", () => {
+    const a = loadRecs().sort((x, y) => x.at - y.at);
+    if(!a.length){ alert("記録がありません"); return; }
+    const q = v => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+    const rows = [["日時", "ピストン回数", "時間（秒）", "平均（回／分）", "リズム", "ページ", "メモ"].map(q).join(",")];
+    a.forEach(r => {
+      const d = new Date(r.at);
+      const dt = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+      rows.push([dt, r.strokes, r.dur ? Math.round(r.dur / 1000) : "", r.dur ? Math.round(r.strokes / (r.dur / 60000)) : "", r.pat || "", r.page || "", r.memo || ""].map(q).join(","));
+    });
+    const url = URL.createObjectURL(new Blob(["\ufeff" + rows.join("\r\n")], { type: "text/csv" }));
+    const link = document.createElement("a"); link.href = url; link.download = "piston-records.csv";
+    document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  $("rClear").addEventListener("click", () => {
+    if(!loadRecs().length) return;
+    if(!confirm("すべての記録を削除しますか？元に戻せません。")) return;
+    saveRecs([]); recsChanged();
+  });
+  window.addEventListener("storage", e => { if(e.key === REC_KEY) rRender(); });
+  rRender();
+
+  render();
+  connect();
+})();
+</script>
+</body>
+</html>
