@@ -66,6 +66,32 @@ h1{font-size:1.15rem; font-weight:700; margin:0}
 .as-val input{width:5.2rem; font:inherit; font-family:"Space Grotesk","Helvetica Neue",Arial,sans-serif; font-weight:700; font-size:1.1rem; text-align:center; color:var(--ink);
   background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:12px; padding:.35rem .4rem}
 .as-val input:focus{outline:2px solid var(--accent); border-color:transparent}
+.rh-r{display:inline-flex; align-items:baseline; gap:.5rem}
+.editCus{font:inherit; font-size:.78rem; border:0; border-radius:999px; padding:.2rem .7rem; cursor:pointer; color:var(--ink); background:var(--raise)}
+.editCus[hidden]{display:none}
+.pat.custom .pn{color:var(--accent2)}
+.cdlg{width:min(30rem,calc(100vw - 1.5rem)); max-height:calc(100dvh - 2rem); overflow:auto; border:0; border-radius:22px; padding:1.1rem 1rem 1rem;
+  color:var(--ink); background:linear-gradient(160deg,var(--card1),var(--card2)); box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.cdlg::backdrop{background:rgba(10,0,25,.65)}
+.cdlg h2{margin:0 0 .3rem; font-size:1.1rem}
+.c-help{margin:0 0 .8rem; font-size:.8rem; color:var(--muted)}
+.c-step{display:grid; grid-template-columns:1.4rem 1fr 1fr 2rem; gap:.45rem; align-items:center; margin-bottom:.5rem}
+.c-no{font-size:.8rem; color:var(--muted); text-align:center}
+.c-step label span{white-space:nowrap}
+.c-step label{display:flex; align-items:center; gap:.3rem; font-size:.75rem; color:var(--muted); min-width:0}
+.c-step input{width:100%; min-width:0; font:inherit; font-family:"Space Grotesk","Helvetica Neue",Arial,sans-serif; font-weight:700; font-size:1.05rem; text-align:center;
+  color:var(--ink); background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:10px; padding:.4rem .3rem}
+.c-step input:focus{outline:2px solid var(--accent); border-color:transparent}
+.c-del{width:2rem; height:2rem; border-radius:50%; border:0; background:var(--raise); color:var(--ink); font-size:1rem; cursor:pointer}
+.c-add{font:inherit; font-size:.85rem; border:1px dashed var(--line); background:transparent; color:var(--ink); border-radius:12px; padding:.5rem; width:100%; cursor:pointer; margin-top:.2rem}
+.c-add:disabled{opacity:.4}
+.c-sm{display:flex; align-items:center; gap:.5rem; font-size:.85rem; margin-top:.8rem}
+.c-sm input{width:1.1rem; height:1.1rem; accent-color:var(--accent)}
+.c-total{font-size:.8rem; color:var(--muted); margin:.6rem 0 .9rem}
+.c-acts{display:flex; gap:.5rem; justify-content:flex-end}
+.c-cancel,.c-save{font:inherit; font-weight:700; border:0; border-radius:999px; padding:.6rem 1.1rem; cursor:pointer}
+.c-cancel{background:var(--raise); color:var(--ink)}
+.c-save{color:#fff; background:radial-gradient(circle at 35% 30%,#FF8BEA 0%,var(--accent) 50%,#B21FC4 100%)}
 .rhythmHead{display:flex; justify-content:space-between; align-items:baseline; margin:0 .2rem .45rem; font-size:.85rem; color:var(--muted)}
 .rhythmHead b{color:var(--ink); font-weight:700}
 .rhythm{display:flex; gap:.6rem; overflow-x:auto; scroll-snap-type:x proximity; padding:.15rem .15rem .6rem; margin:0 -.15rem; scrollbar-width:none}
@@ -164,7 +190,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     </div>
   </section>
 
-  <div class="rhythmHead"><span>リズム</span><b id="patName">一定</b></div>
+  <div class="rhythmHead"><span>リズム</span><span class="rh-r"><b id="patName">一定</b><button class="editCus" id="editCus" type="button" hidden>編集</button></span></div>
   <div class="rhythm" id="rhythm" role="group" aria-label="リズムを選ぶ"></div>
 
   <button class="go" id="go">スタート</button>
@@ -193,9 +219,22 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   </section>
 </main>
 
+<dialog class="cdlg" id="cusDlg" aria-labelledby="cTitle">
+  <h2 id="cTitle">自作リズム</h2>
+  <p class="c-help">速さと秒数を段階ごとに決めると、上から順に進んで、最後まで行くとまた最初に戻ります。</p>
+  <div id="cSteps"></div>
+  <button class="c-add" id="cAddStep" type="button">＋ 段階を追加</button>
+  <label class="c-sm"><input type="checkbox" id="cSmooth"> 次の段階へなめらかに変える</label>
+  <p class="c-total" id="cTotal"></p>
+  <div class="c-acts">
+    <button class="c-cancel" id="cCancel" type="button">キャンセル</button>
+    <button class="c-save" id="cSave" type="button">保存して使う</button>
+  </div>
+</dialog>
+
 <script>
 (() => {
-  const MIN = 20, MAX = 600, DEFAULT_BPM = 260, DEFAULT_NAME = "ピストン260";
+  const MIN = 20, MAX = 300, DEFAULT_BPM = 260, DEFAULT_NAME = "ピストン260";
   const $ = id => document.getElementById(id);
   const el = { bpm:$("bpm"), lamp:$("lamp"), count:$("count"), go:$("go"), status:$("status") };
 
@@ -209,29 +248,54 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     { id:"burst",  name:"緩急",         cyc:20000, m:u => u < 0.6 ? 0.7 : 1.45 },
     { id:"climb",  name:"ゆっくり上昇", cyc:60000, m:u => u < 0.8 ? 0.6 + u : 1.4 },
     { id:"random", name:"ランダム",     cyc:16000, m:u => RAND[Math.floor(u * RAND.length) % RAND.length] },
+    { id:"custom", name:"自作", get cyc(){ const t = cusTotal(); return t > 0 ? t : 10000; }, m:u => customM(u) },
   ];
   const BYID = {};
+  // custom rhythm: state.cus = [[speed ratio to the base, seconds], ...], state.cusSm = smooth change
+  function cusTotal(){ return (state.cus || []).reduce((s, x) => s + x[1], 0) * 1000; }
+  function customM(u){
+    const st = state.cus; if(!st || !st.length) return 1;
+    let t = u * st.reduce((s, x) => s + x[1], 0);
+    for(let i = 0; i < st.length; i++){
+      const r = st[i][0], d = st[i][1];
+      if(t < d || i === st.length - 1){
+        if(!state.cusSm) return r;
+        const nr = st[(i + 1) % st.length][0];
+        return r + (nr - r) * Math.min(1, Math.max(0, t / d));
+      }
+      t -= d;
+    }
+    return 1;
+  }
   const N = 2000;
-  PATTERNS.forEach(p => {   // cumulative integral table so every device computes identical beat times
-    const cum = new Float64Array(N + 1), dt = p.cyc / N;
-    for(let i = 0; i < N; i++) cum[i + 1] = cum[i] + Math.max(0.3, p.m((i + 0.5) / N)) * dt;
-    p.cum = cum; p.total = cum[N]; BYID[p.id] = p;
-  });
+  PATTERNS.forEach(p => { BYID[p.id] = p; });
   const pat = () => BYID[state.pat] || BYID.steady;
+  // speed multiplier, never letting the actual speed go above MAX
+  const capM = (p, u) => Math.min(MAX / state.bpm, Math.max(Math.min(0.3, MIN / state.bpm), p.m(u)));
+  let tabKey = "", tab = null;
+  function T(){ // cumulative integral table so every device computes identical beat times
+    const p = pat(), key = p.id + ":" + state.bpm + (p.id === "custom" ? ":" + JSON.stringify(state.cus) + state.cusSm : "");
+    if(key !== tabKey){
+      const cum = new Float64Array(N + 1), dt = p.cyc / N;
+      for(let i = 0; i < N; i++) cum[i + 1] = cum[i] + capM(p, (i + 0.5) / N) * dt;
+      tab = { cum, total: cum[N], cyc: p.cyc }; tabKey = key;
+    }
+    return tab;
+  }
   function M(x){ // integral of the multiplier from the start (ms)
-    const p = pat(); if(x <= 0) return x;
+    const p = T(); if(x <= 0) return x;
     const k = Math.floor(x / p.cyc), r = x - k * p.cyc, f = r / p.cyc * N, i = Math.min(N - 1, Math.floor(f));
     return k * p.total + p.cum[i] + (p.cum[i + 1] - p.cum[i]) * (f - i);
   }
   function Minv(y){
-    const p = pat(); if(y <= 0) return y;
+    const p = T(); if(y <= 0) return y;
     const k = Math.floor(y / p.total), r = y - k * p.total;
     let lo = 0, hi = N;
     while(hi - lo > 1){ const mid = (lo + hi) >> 1; if(p.cum[mid] <= r) lo = mid; else hi = mid; }
     const seg = p.cum[lo + 1] - p.cum[lo];
     return k * p.cyc + (lo + (seg > 0 ? (r - p.cum[lo]) / seg : 0)) * p.cyc / N;
   }
-  const mult = t => { const p = pat(), x = t - state.go; return x < 0 ? 1 : Math.max(0.3, p.m((x % p.cyc) / p.cyc)); };
+  const mult = t => { const p = pat(), x = t - state.go; return x < 0 ? 1 : capM(p, (x % p.cyc) / p.cyc); };
 
   // ---------- room (the part after # in the link) ----------
   const ROOM_KEY = "piston-room:" + location.pathname;
@@ -246,7 +310,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   try{ localStorage.setItem(ROOM_KEY, room); }catch(e){} // reopen the same room next time
   const TOPIC = "https://ntfy.sh/" + room;
 
-  let state = { bpm: DEFAULT_BPM, running: false, startAt: 0, bps: 1, base: 0, go: 0, dur: 0, name: DEFAULT_NAME, pat: "steady", lim: "none", limV: 0, v: 0 };
+  let state = { bpm: DEFAULT_BPM, running: false, startAt: 0, bps: 1, base: 0, go: 0, dur: 0, name: DEFAULT_NAME, pat: "steady", lim: "none", limV: 0, cus: loadCus(), cusSm: false, v: 0 };
 
   // ---------- beat timing (segment = since last tempo/rhythm change) ----------
   const rate = () => state.bpm / 60000;
@@ -367,29 +431,110 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   // ---------- rhythm bar ----------
   const NS = "http://www.w3.org/2000/svg";
   const patEls = {};
+  function rangeOf(p){
+    if(p.id !== "custom") return [0.3, 1.6];
+    const ms = (state.cus || []).map(x => x[0]); if(!ms.length) return [0.5, 1.5];
+    let lo = Math.min(...ms), hi = Math.max(...ms);
+    if(hi - lo < 0.05){ lo -= 0.25; hi += 0.25; }
+    const pad = (hi - lo) * 0.12; return [lo - pad, hi + pad];
+  }
+  const yOf = (m, r) => (31 - (m - r[0]) / (r[1] - r[0]) * 28).toFixed(1);
+  function drawMini(p){
+    const e = patEls[p.id], r = rangeOf(p); e.range = r;
+    const pts = []; for(let i = 0; i <= 100; i++) pts.push(i + "," + yOf(p.m(Math.min(0.9999, i / 100)), r));
+    e.line.setAttribute("points", pts.join(" "));
+  }
   PATTERNS.forEach(p => {
     const b = document.createElement("button");
-    b.type = "button"; b.className = "pat"; b.setAttribute("aria-pressed", "false");
-    const nm = document.createElement("span"); nm.className = "pn"; nm.textContent = p.name;
+    b.type = "button"; b.className = "pat" + (p.id === "custom" ? " custom" : ""); b.setAttribute("aria-pressed", "false");
+    const nm = document.createElement("span"); nm.className = "pn"; nm.textContent = p.id === "custom" ? "＋ 自作" : p.name;
     const svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", "0 0 100 34"); svg.setAttribute("preserveAspectRatio", "none");
-    const pts = []; for(let i = 0; i <= 100; i++){ const m = Math.max(0.3, p.m(Math.min(0.9999, i / 100))); pts.push(i + "," + (31 - (m - 0.3) / 1.3 * 28).toFixed(1)); }
-    const ln = document.createElementNS(NS, "polyline"); ln.setAttribute("class", "ln"); ln.setAttribute("points", pts.join(" "));
+    const ln = document.createElementNS(NS, "polyline"); ln.setAttribute("class", "ln");
     const hd = document.createElementNS(NS, "circle"); hd.setAttribute("class", "head"); hd.setAttribute("r", "3.5");
     svg.append(ln, hd); b.append(nm, svg);
-    b.addEventListener("click", () => setPattern(p.id));
-    $("rhythm").appendChild(b);
-    patEls[p.id] = { btn: b, head: hd };
+    b.addEventListener("click", () => {
+      if(p.id === "custom" && (!state.cus || !state.cus.length || state.pat === "custom")) openEditor();
+      else setPattern(p.id);
+    });
+    if(p.id === "custom") $("rhythm").prepend(b); else $("rhythm").appendChild(b);
+    patEls[p.id] = { btn: b, head: hd, line: ln, name: nm };
+    drawMini(p);
   });
+  let lastCusSig = "";
+  function refreshCustomCard(){
+    const sig = JSON.stringify(state.cus) + state.cusSm;
+    if(sig === lastCusSig) return; lastCusSig = sig;
+    patEls.custom.name.textContent = state.cus && state.cus.length ? "自作" : "＋ 自作";
+    drawMini(BYID.custom);
+  }
   function moveHead(now){
     const p = pat(), e = patEls[p.id];
     const live = state.running && now >= state.go;
     e.head.classList.toggle("live", live);
     if(!live) return;
     const u = ((now - state.go) % p.cyc) / p.cyc;
-    const m = Math.max(0.3, p.m(u));
     e.head.setAttribute("cx", (u * 100).toFixed(1));
-    e.head.setAttribute("cy", (31 - (m - 0.3) / 1.3 * 28).toFixed(1));
+    e.head.setAttribute("cy", yOf(p.m(u), e.range));
   }
+
+  // ---------- custom rhythm editor ----------
+  const CUS_KEY = "piston-custom:" + location.pathname;
+  function cleanCus(a){
+    if(!Array.isArray(a)) return [];
+    return a.slice(0, 12).map(x => [Number(x && x[0]), Math.round(Number(x && x[1]))])
+            .filter(x => x[0] > 0.01 && x[0] < 20 && x[1] >= 1 && x[1] <= 600);
+  }
+  function loadCus(){ try{ const v = JSON.parse(localStorage.getItem("piston-custom:" + location.pathname) || "null"); return cleanCus(v && v.cus); }catch(e){ return []; } }
+  function storeCus(){ try{ localStorage.setItem(CUS_KEY, JSON.stringify({ cus: state.cus, sm: state.cusSm })); }catch(e){} }
+  const dlg = $("cusDlg");
+  const clampSpeed = v => Math.min(MAX, Math.max(MIN, Math.round(v)));
+  function stepRow(speed, sec){
+    const row = document.createElement("div"); row.className = "c-step";
+    const n = document.createElement("span"); n.className = "c-no";
+    const sp = document.createElement("label"); sp.innerHTML = '<input class="c-sp" type="text" inputmode="numeric" autocomplete="off"><span>回／分</span>';
+    const se = document.createElement("label"); se.innerHTML = '<input class="c-se" type="text" inputmode="numeric" autocomplete="off"><span>秒</span>';
+    sp.querySelector("input").value = speed; se.querySelector("input").value = sec;
+    const del = document.createElement("button"); del.type = "button"; del.className = "c-del"; del.setAttribute("aria-label", "この段階を削除"); del.textContent = "×";
+    del.onclick = () => { row.remove(); renumber(); };
+    row.querySelectorAll("input").forEach(i => { i.addEventListener("focus", () => i.select()); i.addEventListener("input", renumber); });
+    row.append(n, sp, se, del);
+    return row;
+  }
+  function readSteps(){
+    return Array.from($("cSteps").children).map(r => {
+      const sp = parseInt(toHalfNum(r.querySelector(".c-sp").value), 10), se = parseInt(toHalfNum(r.querySelector(".c-se").value), 10);
+      return [isNaN(sp) ? 0 : clampSpeed(sp), isNaN(se) ? 0 : Math.min(600, Math.max(1, se))];
+    });
+  }
+  function renumber(){
+    Array.from($("cSteps").children).forEach((r, i) => r.querySelector(".c-no").textContent = i + 1);
+    const st = readSteps(), tot = st.reduce((s, x) => s + x[1], 0);
+    $("cTotal").textContent = st.length ? "1周 " + fmt(tot * 1000) + "・" + st.length + " 段階（くり返します）" : "段階がありません";
+    $("cAddStep").disabled = st.length >= 12;
+  }
+  function openEditor(){
+    const box = $("cSteps"); box.textContent = "";
+    const st = state.cus && state.cus.length ? state.cus.map(x => [clampSpeed(x[0] * state.bpm), x[1]])
+             : [[clampSpeed(state.bpm * 0.8), 30], [clampSpeed(state.bpm), 30], [clampSpeed(state.bpm * 1.15), 20]];
+    st.forEach(x => box.append(stepRow(x[0], x[1])));
+    $("cSmooth").checked = !!state.cusSm;
+    renumber();
+    if(dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+  }
+  $("cAddStep").addEventListener("click", () => {
+    const st = readSteps(), last = st[st.length - 1] || [state.bpm, 30];
+    $("cSteps").append(stepRow(last[0] || state.bpm, last[1] || 30)); renumber();
+  });
+  $("cCancel").addEventListener("click", () => dlg.close());
+  $("cSave").addEventListener("click", () => {
+    const st = readSteps().filter(x => x[0] > 0 && x[1] > 0);
+    if(!st.length){ alert("段階を1つ以上入れてください"); return; }
+    const cus = st.map(x => [Math.round(x[0] / state.bpm * 10000) / 10000, x[1]]);
+    const c = carry();
+    apply({ ...state, ...c, cus, cusSm: $("cSmooth").checked, pat: "custom" });
+    storeCus(); dlg.close();
+  });
+  $("editCus").addEventListener("click", openEditor);
 
   // ---------- render ----------
   function render(){
@@ -399,6 +544,8 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     if(document.activeElement !== el.bpm) el.bpm.value = strokes;
     PATTERNS.forEach(p => patEls[p.id].btn.setAttribute("aria-pressed", String(p.id === pat().id)));
     $("patName").textContent = pat().name;
+    refreshCustomCard();
+    $("editCus").hidden = state.pat !== "custom";
     document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.l === state.lim)));
     $("asValWrap").hidden = state.lim === "none";
     $("asUnit").textContent = state.lim === "time" ? "分" : "回";
@@ -459,9 +606,10 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
                    startAt: Number(d.startAt) || 0, bps, base: Math.max(0, Math.floor(Number(d.base) || 0)),
                    go: Number(d.go) || Number(d.startAt) || 0, dur: Math.max(0, Number(d.dur) || 0),
                    name: cleanName(d.name) || DEFAULT_NAME, pat: BYID[d.pat] ? d.pat : "steady",
-                   lim: d.lim === "time" || d.lim === "count" ? d.lim : "none", limV: Math.max(0, Number(d.limV) || 0), v };
-    const keys = ["bpm","running","startAt","bps","base","go","dur","name","pat","lim","limV"];
-    if(keys.some(k => next[k] !== state[k])){ const prev = state; state = next; afterChange(prev); render(); } else state.v = v;
+                   lim: d.lim === "time" || d.lim === "count" ? d.lim : "none", limV: Math.max(0, Number(d.limV) || 0),
+                   cus: cleanCus(d.cus), cusSm: !!d.cusSm, v };
+    const keys = ["bpm","running","startAt","bps","base","go","dur","name","pat","lim","limV","cus","cusSm"];
+    if(keys.some(k => JSON.stringify(next[k]) !== JSON.stringify(state[k]))){ const prev = state; state = next; afterChange(prev); render(); } else state.v = v;
   }
   function connect(){
     if(!window.EventSource){ el.status.textContent = "このブラウザでは共有できません"; return; }
