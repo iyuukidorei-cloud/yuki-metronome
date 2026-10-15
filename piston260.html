@@ -70,9 +70,10 @@ h1{font-size:1.15rem; font-weight:700; margin:0}
 .editCus{font:inherit; font-size:.78rem; border:0; border-radius:999px; padding:.2rem .7rem; cursor:pointer; color:var(--ink); background:var(--raise)}
 .editCus[hidden]{display:none}
 .pat.custom .pn{color:var(--accent2)}
-.cdlg{width:min(30rem,calc(100vw - 1.5rem)); max-height:calc(100dvh - 2rem); overflow:auto; border:0; border-radius:22px; padding:1.1rem 1rem 1rem;
+.cdlg{width:min(30rem,100%); max-height:calc(100vh - 2rem); max-height:calc(100dvh - 2rem); overflow:auto; border:0; border-radius:22px; padding:1.1rem 1rem 1rem;
   color:var(--ink); background:linear-gradient(160deg,var(--card1),var(--card2)); box-shadow:0 20px 60px rgba(0,0,0,.5)}
-.cdlg::backdrop{background:rgba(10,0,25,.65)}
+.cwrap{position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:1rem; background:rgba(10,0,25,.65)}
+.cwrap[hidden]{display:none}
 .cdlg h2{margin:0 0 .3rem; font-size:1.1rem}
 .c-help{margin:0 0 .8rem; font-size:.8rem; color:var(--muted)}
 .c-step{display:grid; grid-template-columns:1.4rem 1fr 1fr 2rem; gap:.45rem; align-items:center; margin-bottom:.5rem}
@@ -219,7 +220,8 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   </section>
 </main>
 
-<dialog class="cdlg" id="cusDlg" aria-labelledby="cTitle">
+<div class="cwrap" id="cusDlg" hidden>
+<div class="cdlg" role="dialog" aria-modal="true" aria-labelledby="cTitle">
   <h2 id="cTitle">自作リズム</h2>
   <p class="c-help">速さと秒数を段階ごとに決めると、上から順に進んで、最後まで行くとまた最初に戻ります。</p>
   <div id="cSteps"></div>
@@ -230,7 +232,8 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     <button class="c-cancel" id="cCancel" type="button">キャンセル</button>
     <button class="c-save" id="cSave" type="button">保存して使う</button>
   </div>
-</dialog>
+</div>
+</div>
 
 <script>
 (() => {
@@ -239,6 +242,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const el = { bpm:$("bpm"), lamp:$("lamp"), count:$("count"), go:$("go"), status:$("status") };
 
   // ---------- rhythm patterns: speed multiplier m(u) over one cycle (u = 0..1) ----------
+  const SH_LEVELS = 9, SH_LEN = 40000; // shuttle run: 9 levels x 40 s, from the set speed up to the maximum
   const RAND = [0.8, 1.25, 0.7, 1.35, 1.0, 1.4, 0.65, 1.15];
   const PATTERNS = [
     { id:"steady", name:"一定",         cyc:20000, m:u => 1 },
@@ -247,6 +251,10 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     { id:"saw",    name:"ギザギザ",     cyc:12000, m:u => 0.7 + 0.6 * ((u * 4) % 1) },
     { id:"burst",  name:"緩急",         cyc:20000, m:u => u < 0.6 ? 0.7 : 1.45 },
     { id:"climb",  name:"ゆっくり上昇", cyc:60000, m:u => u < 0.8 ? 0.6 + u : 1.4 },
+    { id:"shuttle", name:"シャトルラン", cyc:SH_LEVELS * SH_LEN, m:u => {
+        // level 1 = the set speed, last level = the maximum (300), equal steps in between
+        const lv = Math.min(SH_LEVELS - 1, Math.floor(u * SH_LEVELS));
+        return (state.bpm + Math.max(0, MAX - state.bpm) * lv / (SH_LEVELS - 1)) / state.bpm; } },
     { id:"random", name:"ランダム",     cyc:16000, m:u => RAND[Math.floor(u * RAND.length) % RAND.length] },
     { id:"custom", name:"自作", get cyc(){ const t = cusTotal(); return t > 0 ? t : 10000; }, m:u => customM(u) },
   ];
@@ -394,12 +402,25 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     if(ctx){ click(ctx.currentTime + 0.02, -1); click(ctx.currentTime + 0.22, -1); }
     el.status.textContent = "自動ストップしました";
   }
+  let shKey = "", shLevel = 0;
+  function shuttleLevel(now){ return Math.floor(((now - state.go) % (SH_LEVELS * SH_LEN)) / SH_LEN) + 1; }
+  function shuttleCue(now){
+    if(state.pat !== "shuttle" || now < state.go){ shKey = ""; return; }
+    const lv = shuttleLevel(now), key = state.go + ":" + state.pat;
+    if(key !== shKey){ shKey = key; shLevel = lv; return; }
+    if(lv !== shLevel){
+      shLevel = lv;
+      if(ctx){ click(ctx.currentTime + 0.01, -1); click(ctx.currentTime + 0.16, -1); click(ctx.currentTime + 0.31, 2); }
+      el.status.textContent = "レベル " + lv + " になりました";
+    }
+  }
   function tick(){
     if(!state.running) return;
     const now = Date.now();
     const sa = stopAt();
     if(sa && now >= sa){ autoStop(sa); return; }
     countdown(now);
+    shuttleCue(now);
     const key = [state.startAt, state.bpm, state.bps, state.pat, state.go].join(":");
     if(key !== genKey){ genKey = key; nextBeat = now <= state.startAt ? 0 : Math.max(0, Math.ceil(beatPhase(now))); }
     const horizon = now + 150;
@@ -432,6 +453,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const NS = "http://www.w3.org/2000/svg";
   const patEls = {};
   function rangeOf(p){
+    if(p.id === "shuttle"){ const hi = Math.max(1, MAX / state.bpm); return hi - 1 < 0.05 ? [0.75, 1.25] : [1 - (hi - 1) * 0.12, hi + (hi - 1) * 0.12]; }
     if(p.id !== "custom") return [0.3, 1.6];
     const ms = (state.cus || []).map(x => x[0]); if(!ms.length) return [0.5, 1.5];
     let lo = Math.min(...ms), hi = Math.max(...ms);
@@ -453,14 +475,14 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     const hd = document.createElementNS(NS, "circle"); hd.setAttribute("class", "head"); hd.setAttribute("r", "3.5");
     svg.append(ln, hd); b.append(nm, svg);
     b.addEventListener("click", () => {
-      if(p.id === "custom" && (!state.cus || !state.cus.length || state.pat === "custom")) openEditor();
+      if(p.id === "custom" && (!state.cus || !state.cus.length)) openEditor();
       else setPattern(p.id);
     });
     if(p.id === "custom") $("rhythm").prepend(b); else $("rhythm").appendChild(b);
     patEls[p.id] = { btn: b, head: hd, line: ln, name: nm };
     drawMini(p);
   });
-  let lastCusSig = "";
+  let lastCusSig = "", lastShBpm = 0;
   function refreshCustomCard(){
     const sig = JSON.stringify(state.cus) + state.cusSm;
     if(sig === lastCusSig) return; lastCusSig = sig;
@@ -519,20 +541,23 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     st.forEach(x => box.append(stepRow(x[0], x[1])));
     $("cSmooth").checked = !!state.cusSm;
     renumber();
-    if(dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+    dlg.hidden = false; document.body.style.overflow = "hidden";
   }
   $("cAddStep").addEventListener("click", () => {
     const st = readSteps(), last = st[st.length - 1] || [state.bpm, 30];
     $("cSteps").append(stepRow(last[0] || state.bpm, last[1] || 30)); renumber();
   });
-  $("cCancel").addEventListener("click", () => dlg.close());
+  function closeEditor(){ dlg.hidden = true; document.body.style.overflow = ""; }
+  $("cCancel").addEventListener("click", closeEditor);
+  dlg.addEventListener("click", e => { if(e.target === dlg) closeEditor(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !dlg.hidden) closeEditor(); });
   $("cSave").addEventListener("click", () => {
     const st = readSteps().filter(x => x[0] > 0 && x[1] > 0);
     if(!st.length){ alert("段階を1つ以上入れてください"); return; }
     const cus = st.map(x => [Math.round(x[0] / state.bpm * 10000) / 10000, x[1]]);
     const c = carry();
     apply({ ...state, ...c, cus, cusSm: $("cSmooth").checked, pat: "custom" });
-    storeCus(); dlg.close();
+    storeCus(); closeEditor();
   });
   $("editCus").addEventListener("click", openEditor);
 
@@ -545,6 +570,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     PATTERNS.forEach(p => patEls[p.id].btn.setAttribute("aria-pressed", String(p.id === pat().id)));
     $("patName").textContent = pat().name;
     refreshCustomCard();
+    if(lastShBpm !== state.bpm){ lastShBpm = state.bpm; drawMini(BYID.shuttle); }
     $("editCus").hidden = state.pat !== "custom";
     document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.l === state.lim)));
     $("asValWrap").hidden = state.lim === "none";
@@ -750,7 +776,8 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     $("grand").textContent = (recSum + (state.running ? doneStrokes() : 0)).toLocaleString("ja-JP");
     const varying = state.pat !== "steady" && state.running && now >= state.go;
     $("unit").textContent = "ピストン 回／分" + (state.bps === 2 ? "（" + state.bpm + " 拍／分）" : "")
-      + (varying ? "・いま " + Math.round(state.bpm / state.bps * mult(now)) : "");
+      + (varying ? "・いま " + Math.round(state.bpm / state.bps * mult(now)) : "")
+      + (varying && state.pat === "shuttle" ? "・レベル " + shuttleLevel(now) : "");
   }
   setInterval(showTime, 250);
 
