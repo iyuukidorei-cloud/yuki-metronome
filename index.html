@@ -795,12 +795,22 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const REC_KEY = "piston-records-v1";
   function loadRecs(){ try{ const a = JSON.parse(localStorage.getItem(REC_KEY) || "[]"); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
   function saveRecs(a){ try{ localStorage.setItem(REC_KEY, JSON.stringify(a)); }catch(e){} }
+  // ids of deleted records: when the shared history is read again (e.g. after entering the passphrase),
+  // a run that was deleted must not be recorded again
+  const DEL_KEY = "piston-records-deleted";
+  function loadDel(){ try{ const o = JSON.parse(localStorage.getItem(DEL_KEY) || "{}"); return o && typeof o === "object" ? o : {}; }catch(e){ return {}; } }
+  function markDeleted(ids){
+    const o = loadDel(), now = Date.now();
+    ids.forEach(id => { o[id] = now; });
+    Object.keys(o).forEach(k => { if(now - o[k] > 7 * 86400000) delete o[k]; });   // the shared history is kept far shorter than a week
+    try{ localStorage.setItem(DEL_KEY, JSON.stringify(o)); }catch(e){}
+  }
   let recSum = 0;
   function refreshSum(){ recSum = loadRecs().reduce((s, x) => s + (Number(x.strokes) || 0), 0); }
   function afterChange(prev){
     if(prev.running && !state.running && state.base > 0 && prev.go){
       const a = loadRecs(), id = "s" + prev.go;
-      if(!a.some(x => x.id === id)){
+      if(!a.some(x => x.id === id) && !loadDel()[id]){
         // strokes are counted when they start, so the last one may be unfinished:
         // keep the exact number of strokes actually made (with the fraction) for the average
         let cyc = null;
@@ -1277,6 +1287,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   function recsChanged(){ refreshSum(); rRender(); showTime(); }
   function rDel(id){
     if(!confirm("この記録を削除しますか？")) return;
+    markDeleted([id]);
     saveRecs(loadRecs().filter(x => x.id !== id)); recsChanged();
   }
   function rMemo(id){
@@ -1315,6 +1326,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   $("rClear").addEventListener("click", () => {
     if(!loadRecs().length) return;
     if(!confirm("すべての記録を削除しますか？元に戻せません。")) return;
+    markDeleted(loadRecs().map(x => x.id));
     saveRecs([]); recsChanged();
   });
   window.addEventListener("storage", e => { if(e.key === REC_KEY) rRender(); });
