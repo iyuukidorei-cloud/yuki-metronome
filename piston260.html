@@ -230,14 +230,14 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
 <div class="cwrap" id="shDlg" hidden>
 <div class="cdlg" role="dialog" aria-modal="true" aria-labelledby="shTitle">
   <h2 id="shTitle">シャトルラン</h2>
-  <p class="c-help">レベルが上がるごとに、始めの速さから最後の速さまで等しい幅で速くなります。</p>
+  <p class="c-help">レベルが上がるごとに、始めの速さから最後の速さまで等しい幅で速くなります。最後のレベルのあとは、その速さのまま続きます。</p>
   <div class="sh-grid">
     <label>始めの速さ<span class="sh-in"><input id="shFrom" type="text" inputmode="numeric" autocomplete="off"><span>回／分</span></span></label>
     <label>最後の速さ<span class="sh-in"><input id="shTo" type="text" inputmode="numeric" autocomplete="off"><span>回／分</span></span></label>
     <label>レベルの数<span class="sh-in"><input id="shLv" type="text" inputmode="numeric" autocomplete="off"><span>段階</span></span></label>
     <label>1レベルの長さ<span class="sh-in"><input id="shLen" type="text" inputmode="numeric" autocomplete="off"><span>秒</span></span></label>
   </div>
-  <label class="c-sm"><input type="checkbox" id="shScale" checked> シャトルラン風の音（ドレミファソラシド）</label>
+  <label class="c-sm"><input type="checkbox" id="shScale" checked> シャトルランの音（ドレミファソラシド）</label>
   <p class="c-total" id="shPrev"></p>
   <div class="c-acts">
     <button class="c-cancel" id="shCancel" type="button">キャンセル</button>
@@ -319,12 +319,33 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     }
     return tab;
   }
+  // shuttle run is not periodic: after the last level it keeps the last speed, so it is computed exactly
+  function shR(i){
+    const L = shL(), to = Math.min(MAX, Math.max(MIN, state.sh.to));
+    const r = (state.bpm + (to - state.bpm) * i / (L - 1)) / state.bpm;
+    return Math.min(MAX / state.bpm, Math.max(Math.min(0.3, MIN / state.bpm), r));
+  }
+  const shIdx = x => Math.min(shL() - 1, Math.max(0, Math.floor(x / shLen())));
+  function shM(x){
+    if(x <= 0) return x;
+    const L = shL(), len = shLen(); let acc = 0, i = 0;
+    for(; i < L - 1 && x > (i + 1) * len; i++) acc += shR(i) * len;
+    return acc + shR(i) * (x - i * len);
+  }
+  function shMinv(y){
+    if(y <= 0) return y;
+    const L = shL(), len = shLen(); let acc = 0, i = 0;
+    for(; i < L - 1 && y > acc + shR(i) * len; i++) acc += shR(i) * len;
+    return i * len + (y - acc) / shR(i);
+  }
   function M(x){ // integral of the multiplier from the start (ms)
+    if(state.pat === "shuttle") return shM(x);
     const p = T(); if(x <= 0) return x;
     const k = Math.floor(x / p.cyc), r = x - k * p.cyc, f = r / p.cyc * N, i = Math.min(N - 1, Math.floor(f));
     return k * p.total + p.cum[i] + (p.cum[i + 1] - p.cum[i]) * (f - i);
   }
   function Minv(y){
+    if(state.pat === "shuttle") return shMinv(y);
     const p = T(); if(y <= 0) return y;
     const k = Math.floor(y / p.total), r = y - k * p.total;
     let lo = 0, hi = N;
@@ -332,7 +353,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     const seg = p.cum[lo + 1] - p.cum[lo];
     return k * p.cyc + (lo + (seg > 0 ? (r - p.cum[lo]) / seg : 0)) * p.cyc / N;
   }
-  const mult = t => { const p = pat(), x = t - state.go; return x < 0 ? 1 : capM(p, (x % p.cyc) / p.cyc); };
+  const mult = t => { const p = pat(), x = t - state.go; if(x < 0) return 1; if(p.id === "shuttle") return shR(shIdx(x)); return capM(p, (x % p.cyc) / p.cyc); };
 
   // ---------- room (the part after # in the link) ----------
   const ROOM_KEY = "piston-room:" + location.pathname;
@@ -394,6 +415,21 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     o.start(at); o.stop(at + 0.07);
   }
 
+  // electronic beep for the shuttle run scale: a soft square tone that lasts most of the gap to the next note
+  function beep(at, freq, dur, strong){
+    if(!ctx) return;
+    const o = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    o.type = "square"; o.frequency.value = freq;
+    lp.type = "lowpass"; lp.frequency.value = freq * 3; lp.Q.value = 0.5;
+    const peak = strong ? 0.32 : 0.2, hold = Math.max(0.01, dur * 0.7);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + 0.008);
+    g.gain.setValueAtTime(peak, at + hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(lp).connect(g).connect(ctx.destination);
+    o.start(at); o.stop(at + dur + 0.03);
+  }
+
   // ---------- scheduler ----------
   let nextBeat = 0, genKey = "", lastT = 0;
   let cdKey = "", cdDone = {};
@@ -433,7 +469,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     el.status.textContent = "自動ストップしました";
   }
   let shKey = "", shLevel = 0;
-  function shuttleLevel(now){ return Math.floor(((now - state.go) % (shL() * shLen())) / shLen()) + 1; }
+  function shuttleLevel(now){ return shIdx(now - state.go) + 1; }
   function shuttleCue(now){
     if(state.pat !== "shuttle" || now < state.go){ shKey = ""; return; }
     const lv = shuttleLevel(now), key = state.go + ":" + state.pat;
@@ -441,7 +477,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     if(lv !== shLevel){
       shLevel = lv;
       if(ctx){
-        if(state.sh.scale){ [1046.5, 1318.5, 1568.0, 2093.0].forEach((fq, i) => click(ctx.currentTime + 0.01 + i * 0.11, 2, fq)); }
+        if(state.sh.scale){ [1046.5, 1318.5, 1568.0, 2093.0].forEach((fq, i) => beep(ctx.currentTime + 0.01 + i * 0.12, fq, 0.11, i === 3)); }
         else { click(ctx.currentTime + 0.01, -1); click(ctx.currentTime + 0.16, -1); click(ctx.currentTime + 0.31, 2); }
       }
       el.status.textContent = "レベル " + lv + " になりました";
@@ -464,8 +500,11 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
       const level = (bps === 2 && n % 2 === 0) ? 1 : 0;
       if(t >= now - 20 && t > lastT + 5){
         lastT = t;
-        const note = state.pat === "shuttle" && state.sh.scale ? SCALE[n % SCALE.length] : 0;
-        if(ctx) click(ctx.currentTime + Math.max(0, (t - Date.now()) / 1000), level, note);
+        const at = ctx ? ctx.currentTime + Math.max(0, (t - Date.now()) / 1000) : 0;
+        if(ctx && state.pat === "shuttle" && state.sh.scale){
+          const gap = 60 / (state.bpm * mult(t));               // seconds until the next note
+          beep(at, SCALE[n % SCALE.length], Math.min(0.28, gap * 0.75), n % SCALE.length === SCALE.length - 1);
+        }else if(ctx) click(at, level);
         setTimeout(() => flash(n, level, bps), Math.max(0, t - Date.now()));
       }
       nextBeat++;
@@ -533,7 +572,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     const live = state.running && now >= state.go;
     e.head.classList.toggle("live", live);
     if(!live) return;
-    const u = ((now - state.go) % p.cyc) / p.cyc;
+    const u = p.id === "shuttle" ? Math.min(0.9999, (now - state.go) / (shL() * shLen())) : ((now - state.go) % p.cyc) / p.cyc;
     e.head.setAttribute("cx", (u * 100).toFixed(1));
     e.head.setAttribute("cy", yOf(p.m(u), e.range));
   }
@@ -855,7 +894,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     const varying = state.pat !== "steady" && state.running && now >= state.go;
     $("unit").textContent = "ピストン 回／分" + (state.bps === 2 ? "（" + state.bpm + " 拍／分）" : "")
       + (varying ? "・いま " + Math.round(state.bpm / state.bps * mult(now)) : "")
-      + (varying && state.pat === "shuttle" ? "・レベル " + shuttleLevel(now) : "");
+      + (varying && state.pat === "shuttle" ? "・レベル " + shuttleLevel(now) + (shuttleLevel(now) === shL() ? "（最後）" : "") : "");
   }
   setInterval(showTime, 250);
 
