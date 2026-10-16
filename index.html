@@ -86,6 +86,13 @@ h1{font-size:1.15rem; font-weight:700; margin:0}
 .c-del{width:2rem; height:2rem; border-radius:50%; border:0; background:var(--raise); color:var(--ink); font-size:1rem; cursor:pointer}
 .c-add{font:inherit; font-size:.85rem; border:1px dashed var(--line); background:transparent; color:var(--ink); border-radius:12px; padding:.5rem; width:100%; cursor:pointer; margin-top:.2rem}
 .c-add:disabled{opacity:.4}
+.sh-grid{display:grid; grid-template-columns:1fr 1fr; gap:.7rem}
+.sh-grid label{display:grid; gap:.25rem; font-size:.78rem; color:var(--muted)}
+.sh-in{display:flex; align-items:center; gap:.3rem}
+.sh-in span{white-space:nowrap; font-size:.75rem}
+.sh-in input{width:100%; min-width:0; font:inherit; font-family:"Space Grotesk","Helvetica Neue",Arial,sans-serif; font-weight:700; font-size:1.05rem; text-align:center;
+  color:var(--ink); background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:10px; padding:.4rem .3rem}
+.sh-in input:focus{outline:2px solid var(--accent); border-color:transparent}
 .c-sm{display:flex; align-items:center; gap:.5rem; font-size:.85rem; margin-top:.8rem}
 .c-sm input{width:1.1rem; height:1.1rem; accent-color:var(--accent)}
 .c-total{font-size:.8rem; color:var(--muted); margin:.6rem 0 .9rem}
@@ -219,6 +226,25 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   </section>
 </main>
 
+<div class="cwrap" id="shDlg" hidden>
+<div class="cdlg" role="dialog" aria-modal="true" aria-labelledby="shTitle">
+  <h2 id="shTitle">シャトルラン</h2>
+  <p class="c-help">レベルが上がるごとに、始めの速さから最後の速さまで等しい幅で速くなります。</p>
+  <div class="sh-grid">
+    <label>始めの速さ<span class="sh-in"><input id="shFrom" type="text" inputmode="numeric" autocomplete="off"><span>回／分</span></span></label>
+    <label>最後の速さ<span class="sh-in"><input id="shTo" type="text" inputmode="numeric" autocomplete="off"><span>回／分</span></span></label>
+    <label>レベルの数<span class="sh-in"><input id="shLv" type="text" inputmode="numeric" autocomplete="off"><span>段階</span></span></label>
+    <label>1レベルの長さ<span class="sh-in"><input id="shLen" type="text" inputmode="numeric" autocomplete="off"><span>秒</span></span></label>
+  </div>
+  <label class="c-sm"><input type="checkbox" id="shScale" checked> シャトルラン風の音（ドレミファソラシド）</label>
+  <p class="c-total" id="shPrev"></p>
+  <div class="c-acts">
+    <button class="c-cancel" id="shCancel" type="button">キャンセル</button>
+    <button class="c-save" id="shSave" type="button">保存して使う</button>
+  </div>
+</div>
+</div>
+
 <div class="cwrap" id="cusDlg" hidden>
 <div class="cdlg" role="dialog" aria-modal="true" aria-labelledby="cTitle">
   <h2 id="cTitle">自作リズム</h2>
@@ -241,7 +267,10 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const el = { bpm:$("bpm"), lamp:$("lamp"), count:$("count"), go:$("go"), status:$("status") };
 
   // ---------- rhythm patterns: speed multiplier m(u) over one cycle (u = 0..1) ----------
-  const SH_LEVELS = 9, SH_LEN = 40000; // shuttle run: 9 levels x 40 s, from the set speed up to the maximum
+  // shuttle run: levels from the set speed (level 1) to sh.to (last level), each level sh.len seconds
+  const SH_DEFAULT = { to: 300, lv: 9, len: 40, scale: true };
+  const shL = () => state.sh.lv, shLen = () => state.sh.len * 1000;
+  const SCALE = [523.25, 587.33, 659.25, 698.46, 783.99, 880.00, 987.77, 1046.50]; // ド レ ミ ファ ソ ラ シ ド
   const RAND = [0.8, 1.25, 0.7, 1.35, 1.0, 1.4, 0.65, 1.15];
   const PATTERNS = [
     { id:"steady", name:"一定",         cyc:20000, m:u => 1 },
@@ -250,10 +279,10 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     { id:"saw",    name:"ギザギザ",     cyc:12000, m:u => 0.7 + 0.6 * ((u * 4) % 1) },
     { id:"burst",  name:"緩急",         cyc:20000, m:u => u < 0.6 ? 0.7 : 1.45 },
     { id:"climb",  name:"ゆっくり上昇", cyc:60000, m:u => u < 0.8 ? 0.6 + u : 1.4 },
-    { id:"shuttle", name:"シャトルラン", cyc:SH_LEVELS * SH_LEN, m:u => {
-        // level 1 = the set speed, last level = the maximum (300), equal steps in between
-        const lv = Math.min(SH_LEVELS - 1, Math.floor(u * SH_LEVELS));
-        return (state.bpm + Math.max(0, MAX - state.bpm) * lv / (SH_LEVELS - 1)) / state.bpm; } },
+    { id:"shuttle", name:"シャトルラン", get cyc(){ return shL() * shLen(); }, m:u => {
+        const L = shL(), lv = Math.min(L - 1, Math.floor(u * L));
+        const to = Math.min(MAX, Math.max(MIN, state.sh.to));
+        return (state.bpm + (to - state.bpm) * lv / (L - 1)) / state.bpm; } },
     { id:"random", name:"ランダム",     cyc:16000, m:u => RAND[Math.floor(u * RAND.length) % RAND.length] },
     { id:"custom", name:"自作", get cyc(){ const t = cusTotal(); return t > 0 ? t : 10000; }, m:u => customM(u) },
   ];
@@ -281,7 +310,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const capM = (p, u) => Math.min(MAX / state.bpm, Math.max(Math.min(0.3, MIN / state.bpm), p.m(u)));
   let tabKey = "", tab = null;
   function T(){ // cumulative integral table so every device computes identical beat times
-    const p = pat(), key = p.id + ":" + state.bpm + (p.id === "custom" ? ":" + JSON.stringify(state.cus) + state.cusSm : "");
+    const p = pat(), key = p.id + ":" + state.bpm + (p.id === "custom" ? ":" + JSON.stringify(state.cus) + state.cusSm : "") + (p.id === "shuttle" ? ":" + JSON.stringify(state.sh) : "");
     if(key !== tabKey){
       const cum = new Float64Array(N + 1), dt = p.cyc / N;
       for(let i = 0; i < N; i++) cum[i + 1] = cum[i] + capM(p, (i + 0.5) / N) * dt;
@@ -317,7 +346,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   try{ localStorage.setItem(ROOM_KEY, room); }catch(e){} // reopen the same room next time
   const TOPIC = "https://ntfy.sh/" + room;
 
-  let state = { bpm: DEFAULT_BPM, running: false, startAt: 0, bps: 1, base: 0, go: 0, dur: 0, name: DEFAULT_NAME, pat: "steady", lim: "none", limV: 0, cus: loadCus(), cusSm: false, v: 0 };
+  let state = { bpm: DEFAULT_BPM, running: false, startAt: 0, bps: 1, base: 0, go: 0, dur: 0, name: DEFAULT_NAME, pat: "steady", lim: "none", limV: 0, cus: loadCus(), cusSm: false, sh: loadSh(), v: 0 };
 
   // ---------- beat timing (segment = since last tempo/rhythm change) ----------
   const rate = () => state.bpm / 60000;
@@ -351,11 +380,12 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
       }
     }catch(e){}
   }
-  function click(at, level){
+  function click(at, level, freq){
     if(!ctx) return;
     const strong = !!level;
     const o = ctx.createOscillator(), g = ctx.createGain();
-    o.frequency.value = level === -1 ? 660 : level === 2 ? 1800 : level ? 1300 : 900;
+    o.frequency.value = freq || (level === -1 ? 660 : level === 2 ? 1800 : level ? 1300 : 900);
+    if(freq) o.type = "triangle";
     g.gain.setValueAtTime(0.0001, at);
     g.gain.exponentialRampToValueAtTime(strong ? 0.9 : 0.6, at + 0.002);
     g.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
@@ -402,14 +432,17 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     el.status.textContent = "自動ストップしました";
   }
   let shKey = "", shLevel = 0;
-  function shuttleLevel(now){ return Math.floor(((now - state.go) % (SH_LEVELS * SH_LEN)) / SH_LEN) + 1; }
+  function shuttleLevel(now){ return Math.floor(((now - state.go) % (shL() * shLen())) / shLen()) + 1; }
   function shuttleCue(now){
     if(state.pat !== "shuttle" || now < state.go){ shKey = ""; return; }
     const lv = shuttleLevel(now), key = state.go + ":" + state.pat;
     if(key !== shKey){ shKey = key; shLevel = lv; return; }
     if(lv !== shLevel){
       shLevel = lv;
-      if(ctx){ click(ctx.currentTime + 0.01, -1); click(ctx.currentTime + 0.16, -1); click(ctx.currentTime + 0.31, 2); }
+      if(ctx){
+        if(state.sh.scale){ [1046.5, 1318.5, 1568.0, 2093.0].forEach((fq, i) => click(ctx.currentTime + 0.01 + i * 0.11, 2, fq)); }
+        else { click(ctx.currentTime + 0.01, -1); click(ctx.currentTime + 0.16, -1); click(ctx.currentTime + 0.31, 2); }
+      }
       el.status.textContent = "レベル " + lv + " になりました";
     }
   }
@@ -430,7 +463,8 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
       const level = (bps === 2 && n % 2 === 0) ? 1 : 0;
       if(t >= now - 20 && t > lastT + 5){
         lastT = t;
-        if(ctx) click(ctx.currentTime + Math.max(0, (t - Date.now()) / 1000), level);
+        const note = state.pat === "shuttle" && state.sh.scale ? SCALE[n % SCALE.length] : 0;
+        if(ctx) click(ctx.currentTime + Math.max(0, (t - Date.now()) / 1000), level, note);
         setTimeout(() => flash(n, level, bps), Math.max(0, t - Date.now()));
       }
       nextBeat++;
@@ -452,7 +486,11 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const NS = "http://www.w3.org/2000/svg";
   const patEls = {};
   function rangeOf(p){
-    if(p.id === "shuttle"){ const hi = Math.max(1, MAX / state.bpm); return hi - 1 < 0.05 ? [0.75, 1.25] : [1 - (hi - 1) * 0.12, hi + (hi - 1) * 0.12]; }
+    if(p.id === "shuttle"){
+      const e = Math.min(MAX, Math.max(MIN, state.sh.to)) / state.bpm, lo = Math.min(1, e), hi = Math.max(1, e);
+      if(hi - lo < 0.05) return [lo - 0.25, hi + 0.25];
+      const pad = (hi - lo) * 0.12; return [lo - pad, hi + pad];
+    }
     if(p.id !== "custom") return [0.3, 1.6];
     const ms = (state.cus || []).map(x => x[0]); if(!ms.length) return [0.5, 1.5];
     let lo = Math.min(...ms), hi = Math.max(...ms);
@@ -475,6 +513,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     svg.append(ln, hd); b.append(nm, svg);
     b.addEventListener("click", () => {
       if(p.id === "custom" && (!state.cus || !state.cus.length)) openEditor();
+      else if(p.id === "shuttle") openShuttle();
       else setPattern(p.id);
     });
     if(p.id === "custom") $("rhythm").prepend(b); else $("rhythm").appendChild(b);
@@ -558,7 +597,45 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     apply({ ...state, ...c, cus, cusSm: $("cSmooth").checked, pat: "custom" });
     storeCus(); closeEditor();
   });
-  $("editCus").addEventListener("click", openEditor);
+  $("editCus").addEventListener("click", () => state.pat === "shuttle" ? openShuttle() : openEditor());
+
+  // ---------- shuttle run settings ----------
+  const SH_KEY = "piston-shuttle:" + location.pathname;
+  function cleanSh(x){
+    x = x && typeof x === "object" ? x : {};
+    const n = (v, lo, hi, d) => { v = Math.round(Number(v)); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
+    return { to: n(x.to, MIN, MAX, SH_DEFAULT.to), lv: n(x.lv, 2, 20, SH_DEFAULT.lv), len: n(x.len, 5, 300, SH_DEFAULT.len), scale: x.scale === undefined ? true : !!x.scale };
+  }
+  function loadSh(){ try{ return cleanSh(JSON.parse(localStorage.getItem("piston-shuttle:" + location.pathname) || "null")); }catch(e){ return { ...SH_DEFAULT }; } }
+  const shDlg = $("shDlg");
+  const numIn = id => parseInt(toHalfNum($(id).value), 10);
+  function shPreview(){
+    const from = Math.min(MAX, Math.max(MIN, numIn("shFrom") || MIN)), to = Math.min(MAX, Math.max(MIN, numIn("shTo") || MAX));
+    const L = Math.min(20, Math.max(2, numIn("shLv") || 2)), len = Math.min(300, Math.max(5, numIn("shLen") || 5));
+    const sp = []; for(let i = 0; i < L; i++) sp.push(Math.round(from + (to - from) * i / (L - 1)));
+    const shown = sp.length > 7 ? sp.slice(0, 3).concat(["…"], sp.slice(-3)) : sp;
+    $("shPrev").textContent = shown.join(" → ") + " 回／分・全 " + fmt(L * len * 1000);
+  }
+  function openShuttle(){
+    // if the current speed is already at the top, suggest a lower start so the run actually climbs
+    $("shFrom").value = state.bpm < state.sh.to ? state.bpm : Math.max(MIN, Math.round(state.sh.to / 2)); $("shTo").value = state.sh.to; $("shLv").value = state.sh.lv; $("shLen").value = state.sh.len;
+    $("shScale").checked = !!state.sh.scale; shPreview();
+    shDlg.hidden = false; document.body.style.overflow = "hidden";
+  }
+  function closeShuttle(){ shDlg.hidden = true; document.body.style.overflow = ""; }
+  ["shFrom", "shTo", "shLv", "shLen"].forEach(id => { $(id).addEventListener("input", shPreview); $(id).addEventListener("focus", () => $(id).select()); });
+  $("shCancel").addEventListener("click", closeShuttle);
+  shDlg.addEventListener("click", e => { if(e.target === shDlg) closeShuttle(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !shDlg.hidden) closeShuttle(); });
+  $("shSave").addEventListener("click", () => {
+    const from = numIn("shFrom"), to = numIn("shTo");
+    if(isNaN(from) || isNaN(to)){ alert("始めと最後の速さを入れてください"); return; }
+    const sh = cleanSh({ to, lv: numIn("shLv"), len: numIn("shLen"), scale: $("shScale").checked });
+    const c = carry();
+    apply({ ...state, ...c, bpm: fit(from, state.bps), pat: "shuttle", sh });
+    try{ localStorage.setItem(SH_KEY, JSON.stringify(sh)); }catch(e){}
+    closeShuttle();
+  });
 
   // ---------- render ----------
   function render(){
@@ -569,8 +646,9 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     PATTERNS.forEach(p => patEls[p.id].btn.setAttribute("aria-pressed", String(p.id === pat().id)));
     $("patName").textContent = pat().name;
     refreshCustomCard();
-    if(lastShBpm !== state.bpm){ lastShBpm = state.bpm; drawMini(BYID.shuttle); }
-    $("editCus").hidden = state.pat !== "custom";
+    const shSig = state.bpm + JSON.stringify(state.sh);
+    if(lastShBpm !== shSig){ lastShBpm = shSig; drawMini(BYID.shuttle); }
+    $("editCus").hidden = state.pat !== "custom" && state.pat !== "shuttle";
     document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.l === state.lim)));
     $("asValWrap").hidden = state.lim === "none";
     $("asUnit").textContent = state.lim === "time" ? "分" : "回";
@@ -632,8 +710,8 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
                    go: Number(d.go) || Number(d.startAt) || 0, dur: Math.max(0, Number(d.dur) || 0),
                    name: cleanName(d.name) || DEFAULT_NAME, pat: BYID[d.pat] ? d.pat : "steady",
                    lim: d.lim === "time" || d.lim === "count" ? d.lim : "none", limV: Math.max(0, Number(d.limV) || 0),
-                   cus: cleanCus(d.cus), cusSm: !!d.cusSm, v };
-    const keys = ["bpm","running","startAt","bps","base","go","dur","name","pat","lim","limV","cus","cusSm"];
+                   cus: cleanCus(d.cus), cusSm: !!d.cusSm, sh: cleanSh(d.sh), v };
+    const keys = ["bpm","running","startAt","bps","base","go","dur","name","pat","lim","limV","cus","cusSm","sh"];
     if(keys.some(k => JSON.stringify(next[k]) !== JSON.stringify(state[k]))){ const prev = state; state = next; afterChange(prev); render(); } else state.v = v;
   }
   function connect(){
