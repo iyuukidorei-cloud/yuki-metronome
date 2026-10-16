@@ -33,7 +33,7 @@ h1{font-size:1.15rem; font-weight:700; margin:0}
 .status{font-size:.72rem; color:var(--muted); margin:.05rem 0 0; min-height:1.2em}
 
 .card{background:linear-gradient(160deg,var(--card1),var(--card2)); border-radius:22px; box-shadow:0 8px 24px rgba(10,0,30,.35)}
-.wave{height:clamp(130px,22vh,190px); overflow:hidden; margin-bottom:.75rem}
+.wave{height:clamp(160px,26vh,230px); overflow:hidden; margin-bottom:.75rem}
 .wave canvas{display:block; width:100%; height:100%}
 .tempoCard{padding:1.1rem .9rem 1rem; margin-bottom:1rem}
 .tempo{display:grid; grid-template-columns:3.6rem 1fr 3.6rem; align-items:center; gap:.5rem}
@@ -986,12 +986,39 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     if(!state.running || now < state.startAt) return 0;
     return Math.sin(2 * Math.PI * beatPhase(now) / state.bps);
   }
+  // a piston that moves with the same position as the wave
+  function rr(x, y, w, h, r){ g2.beginPath(); g2.moveTo(x + r, y); g2.arcTo(x + w, y, x + w, y + h, r); g2.arcTo(x + w, y + h, x, y + h, r); g2.arcTo(x, y + h, x, y, r); g2.arcTo(x, y, x + w, y, r); g2.closePath(); }
+  function drawPiston(w, h, d, mid, amp, headX, yy){
+    const cx = w * 0.82, pw = Math.min(w * 0.17, 64 * d), headH = 18 * d;
+    const top = mid - amp - headH / 2 - 8 * d, bot = mid + amp + headH / 2 + 8 * d;
+    // link from the wave to the piston
+    g2.save(); g2.setLineDash([4 * d, 5 * d]); g2.strokeStyle = "rgba(238,61,224,.45)"; g2.lineWidth = 1.5 * d;
+    g2.beginPath(); g2.moveTo(headX + 8 * d, yy); g2.lineTo(cx - pw / 2 - 4 * d, yy); g2.stroke(); g2.restore();
+    // cylinder
+    rr(cx - pw / 2, top, pw, bot - top, 10 * d);
+    g2.fillStyle = "rgba(0,0,0,.22)"; g2.fill();
+    g2.strokeStyle = "rgba(255,255,255,.22)"; g2.lineWidth = 1.5 * d; g2.stroke();
+    // mount and rod
+    g2.fillStyle = "rgba(255,255,255,.18)"; rr(cx - pw * 0.35, 4 * d, pw * 0.7, Math.max(6 * d, top - 8 * d), 4 * d); g2.fill();
+    const rodW = Math.max(5 * d, pw * 0.16);
+    const rg = g2.createLinearGradient(cx - rodW / 2, 0, cx + rodW / 2, 0);
+    rg.addColorStop(0, "#9C8BB8"); rg.addColorStop(0.5, "#F4EEFF"); rg.addColorStop(1, "#9C8BB8");
+    g2.fillStyle = rg; g2.fillRect(cx - rodW / 2, 6 * d, rodW, yy - 6 * d);
+    // piston head
+    const hg = g2.createLinearGradient(0, yy - headH / 2, 0, yy + headH / 2);
+    hg.addColorStop(0, "#FF8BEA"); hg.addColorStop(1, "#B21FC4");
+    rr(cx - pw / 2 + 4 * d, yy - headH / 2, pw - 8 * d, headH, 6 * d);
+    g2.fillStyle = hg; g2.fill();
+    g2.strokeStyle = "rgba(255,255,255,.35)"; g2.lineWidth = 1 * d;
+    g2.beginPath(); g2.moveTo(cx - pw / 2 + 8 * d, yy - headH / 6); g2.lineTo(cx + pw / 2 - 8 * d, yy - headH / 6);
+    g2.moveTo(cx - pw / 2 + 8 * d, yy + headH / 6); g2.lineTo(cx + pw / 2 - 8 * d, yy + headH / 6); g2.stroke();
+  }
   function draw(){
     const now = Date.now();
     samples.push([now, position(now)]);
     while(samples.length && samples[0][0] < now - WINDOW) samples.shift();
     const w = cv.width, h = cv.height, d = window.devicePixelRatio || 1;
-    const headX = w * 0.62, amp = h * 0.32, mid = h / 2;
+    const headX = w * 0.58, amp = h * 0.3, mid = h / 2;
     g2.clearRect(0, 0, w, h);
     g2.strokeStyle = "rgba(255,255,255,.08)"; g2.lineWidth = 1 * d;
     g2.beginPath(); g2.moveTo(0, mid); g2.lineTo(w, mid); g2.stroke();
@@ -1005,8 +1032,10 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     });
     g2.stroke();
     const last = samples[samples.length - 1];
+    const yy = mid - last[1] * amp;
+    drawPiston(w, h, d, mid, amp, headX, yy);
     g2.fillStyle = "#EE3DE0";
-    g2.beginPath(); g2.arc(headX, mid - last[1] * amp, 6 * d, 0, Math.PI * 2); g2.fill();
+    g2.beginPath(); g2.arc(headX, yy, 6 * d, 0, Math.PI * 2); g2.fill();
     moveHead(now);
     requestAnimationFrame(draw);
   }
