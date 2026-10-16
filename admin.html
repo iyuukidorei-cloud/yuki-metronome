@@ -45,6 +45,12 @@ input:focus{outline:2px solid var(--accent); border-color:transparent}
 .switch button[aria-pressed="true"]{border-color:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); background:rgba(238,61,224,.18)}
 ol{margin:.2rem 0 .8rem; padding-left:1.3rem; font-size:.88rem; color:var(--muted)}
 ol li{margin-bottom:.3rem}
+input.masked{-webkit-text-security:disc; text-security:disc}
+.cur{font-size:.85rem; margin:.2rem 0 .9rem; display:grid; gap:.25rem}
+.cur div{display:flex; justify-content:space-between; gap:.5rem; padding:.45rem .7rem; border-radius:12px; background:rgba(0,0,0,.18)}
+.cur span{color:var(--muted)}
+.pages{display:flex; gap:1.2rem; flex-wrap:wrap}
+.ok{color:#B9F6CA !important}
 .row{display:flex; gap:.5rem; flex-wrap:wrap; justify-content:center; margin-top:.4rem}
 button:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
 </style>
@@ -93,8 +99,23 @@ button:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
       <button type="button" id="setOff" aria-pressed="false">🔴 停止中にする</button>
     </div>
     <p class="err" id="pErr"></p>
-    <div class="row"><button class="ghost" id="pOut" type="button">この端末からログアウト</button></div>
   </section>
+
+  <section class="card" id="passCard" hidden>
+    <h2>合言葉の設定</h2>
+    <p>サイトに入るための合言葉を、ここで決められます。変更すると、使っている人の画面は自動で新しい合言葉の入力画面に切り替わり、古い合言葉では入れなくなります。</p>
+    <div class="cur" id="curList"></div>
+    <label class="f">新しい合言葉（4文字以上）<input type="text" id="cPass" class="masked" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    <label class="chk"><input type="checkbox" id="cShow"> 文字を表示する</label>
+    <div class="pages">
+      <label class="chk"><input type="checkbox" id="cIdx" checked> ゆき専用</label>
+      <label class="chk"><input type="checkbox" id="c260" checked> ピストン260</label>
+    </div>
+    <button class="btn" id="cSet" type="button">この合言葉にする</button>
+    <p class="err" id="cErr"></p>
+  </section>
+
+  <div class="row" id="outRow" hidden><button class="ghost" id="pOut" type="button">この端末からログアウト</button></div>
 
   <p style="text-align:center; font-size:.75rem">切り替えは、開いているサイトに数秒で反映されます。</p>
 </main>
@@ -106,7 +127,10 @@ button:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
   const SALT = "piston-site-admin-v1", PASS_LS = "piston-admin-pass";
   const PKCS8_ED25519 = [0x30,0x2e,0x02,0x01,0x00,0x30,0x05,0x06,0x03,0x2b,0x65,0x70,0x04,0x22,0x04,0x20];
   const b64 = u8 => { let s = ""; new Uint8Array(u8).forEach(c => s += String.fromCharCode(c)); return btoa(s); };
-  const show = id => ["loading", "setup", "login", "panel"].forEach(x => $(x).hidden = x !== id);
+  const show = id => {
+    ["loading", "setup", "login", "panel"].forEach(x => $(x).hidden = x !== id);
+    $("passCard").hidden = $("outRow").hidden = id !== "panel";
+  };
   async function sha256hex(s){ const h = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s))); return Array.from(h, b => b.toString(16).padStart(2, "0")).join(""); }
 
   // password -> Ed25519 signing key (same password gives the same key on any device)
@@ -172,7 +196,7 @@ button:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
     $("setOn").setAttribute("aria-pressed", String(on)); $("setOff").setAttribute("aria-pressed", String(!on));
   }
   function openPanel(){
-    show("panel"); render();
+    show("panel"); render(); openCfg();
     if(es) es.close();
     es = new EventSource(topic + "/sse?since=all");
     es.onmessage = e => {
@@ -192,6 +216,68 @@ button:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
       latest = { s, t }; render();
     }catch(e){ $("pErr").textContent = "切り替えられませんでした。通信状態を確認してください"; }
   }
+  // ----- passphrase settings -----
+  const PAGES = [{ id: "index", name: "ゆき専用", prefix: "yuki-", box: "cIdx" }, { id: "piston260", name: "ピストン260", prefix: "p260-", box: "c260" }];
+  let ctopic = "", ces = null; const cfgs = {};
+  const b64u = u8 => b64(u8).replace(/\+/g, "-").replace(/\//g, "_");
+  // same calculation as the site: the check value of a passphrase for a room
+  async function checkValue(pass, room){
+    const base = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveBits"]);
+    const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode("piston-room:" + room), iterations: 150000, hash: "SHA-256" }, base, 512));
+    const h = new Uint8Array(await crypto.subtle.digest("SHA-256", bits.slice(32)));
+    return b64u(h.slice(0, 9));
+  }
+  function newRoom(prefix){
+    const a = new Uint8Array(12); crypto.getRandomValues(a);
+    return prefix + Array.from(a, x => "abcdefghijkmnpqrstuvwxyz23456789"[x % 32]).join("");
+  }
+  function renderCfg(){
+    const box = $("curList"); box.textContent = "";
+    PAGES.forEach(p => {
+      const row = document.createElement("div"), a = document.createElement("b"), b = document.createElement("span");
+      a.textContent = p.name;
+      const c = cfgs[p.id];
+      if(c){ const d = new Date(c.t); b.textContent = "設定済み（" + (d.getMonth() + 1) + "/" + d.getDate() + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + "）"; }
+      else b.textContent = "まだ設定していません";
+      row.append(a, b); box.append(row);
+    });
+  }
+  async function openCfg(){
+    if(!ctopic) ctopic = "https://ntfy.sh/pcfg-" + (await sha256hex("cfg:" + fileKey.x)).slice(0, 24);
+    renderCfg();
+    if(ces) ces.close();
+    ces = new EventSource(ctopic + "/sse?since=all");
+    ces.onmessage = e => {
+      let w; try{ w = JSON.parse(e.data); }catch(x){ return; }
+      if(w.event !== "message") return;
+      let m; try{ m = JSON.parse(w.message); }catch(x){ return; }
+      if(m && PAGES.some(p => p.id === m.page) && (!cfgs[m.page] || m.t > cfgs[m.page].t)){ cfgs[m.page] = m; renderCfg(); }
+    };
+  }
+  $("cShow").addEventListener("change", () => $("cPass").classList.toggle("masked", !$("cShow").checked));
+  $("cSet").addEventListener("click", async () => {
+    const pass = $("cPass").value.normalize("NFKC").trim();
+    const targets = PAGES.filter(p => $(p.box).checked);
+    $("cErr").classList.remove("ok");
+    if(pass.length < 4){ $("cErr").textContent = "4文字以上にしてください"; return; }
+    if(!targets.length){ $("cErr").textContent = "設定するページを選んでください"; return; }
+    if(!confirm("合言葉を変更します。使っている人は新しい合言葉を入れ直す必要があります。よろしいですか？")) return;
+    $("cSet").disabled = true; $("cErr").textContent = "設定しています…";
+    try{
+      for(const p of targets){
+        const room = newRoom(p.prefix), v = await checkValue(pass, room), t = Date.now();
+        const sig = await crypto.subtle.sign({ name: "Ed25519" }, signKey, enc.encode(["cfg", p.id, room, v, t].join("|")));
+        const msg = { page: p.id, room, v, t, sig: b64(sig) };
+        const r = await fetch(ctopic, { method: "POST", body: JSON.stringify(msg) });
+        if(!r.ok) throw new Error(r.status);
+        cfgs[p.id] = msg;
+      }
+      renderCfg(); $("cPass").value = "";
+      $("cErr").textContent = "設定しました。新しい合言葉を、使う人に伝えてください。"; $("cErr").classList.add("ok");
+    }catch(e){ $("cErr").textContent = "設定できませんでした。通信状態を確認してください"; }
+    $("cSet").disabled = false;
+  });
+
   $("setOn").addEventListener("click", () => setStatus("on"));
   $("setOff").addEventListener("click", () => setStatus("off"));
   $("pOut").addEventListener("click", () => { try{ localStorage.removeItem(PASS_LS); }catch(e){} signKey = null; $("lPass").value = ""; show("login"); });

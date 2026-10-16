@@ -29,6 +29,8 @@ main{max-width:32rem; margin:0 auto; padding:0 .85rem 1.5rem}
 .g-in input{width:100%; font:inherit; font-size:1.1rem; color:var(--ink); background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:12px; padding:.65rem .8rem}
 .g-in input.masked{-webkit-text-security:disc; text-security:disc}
 .g-in input:focus{outline:2px solid var(--accent); border-color:transparent}
+.g-new{margin:.2rem 0 .6rem}
+.g-link{font:inherit; font-size:.78rem; color:var(--muted); background:none; border:0; padding:0; text-decoration:underline; cursor:pointer}
 .g-err{min-height:1.2em; font-size:.8rem; color:#FFB3D9; margin:.5rem 0 .3rem}
 .blocked{position:fixed; top:0; right:0; bottom:0; left:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:2rem; text-align:center;
   background:rgba(22,12,48,.94); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px)}
@@ -245,6 +247,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   <label class="c-sm"><input type="checkbox" id="gShow"> 文字を表示する</label>
   <label class="c-sm"><input type="checkbox" id="gKeep"> この端末で覚えておく（次から入力を省略）</label>
   <p class="g-err" id="gErr"></p>
+  <p class="g-new"><button class="g-link" id="gNew" type="button">新しい部屋で始める（合言葉を決め直す）</button></p>
   <div class="c-acts"><button class="c-save" id="gGo" type="button">入る</button></div>
 </div>
 </div>
@@ -385,13 +388,25 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   // ---------- room (the part after # in the link) ----------
   const ROOM_KEY = "piston-room:" + location.pathname;
   const okRoom = r => !!r && /^[A-Za-z0-9_-]{8,64}$/.test(r);
-  let room = new URLSearchParams(location.hash.slice(1)).get("room");
-  if(!okRoom(room)){ try{ const saved = localStorage.getItem(ROOM_KEY); if(okRoom(saved)){ room = saved; history.replaceState(null, "", "#room=" + room); } }catch(e){} }
+  const hashP = new URLSearchParams(location.hash.slice(1));
+  let room = hashP.get("room");
+  // v = check value of the room's passphrase (lets a device reject a wrong passphrase); travels with the link
+  let roomV = /^[A-Za-z0-9_-]{8,32}$/.test(hashP.get("v") || "") ? hashP.get("v") : "";
+  // the passphrase (and its room) can be set from admin.html; the last one received is kept on this device
+  const PAGE_ID = /piston260\.html$/.test(location.pathname) ? "piston260" : "index";
+  const CFG_LS = "piston-cfg:" + PAGE_ID;
+  let adminCfg = null;
+  try{ adminCfg = JSON.parse(localStorage.getItem(CFG_LS) || "null"); }catch(e){}
+  if(adminCfg && okRoom(adminCfg.room) && adminCfg.v){ room = adminCfg.room; roomV = adminCfg.v; } else adminCfg = null;
+  if(!okRoom(room)){ try{ const saved = localStorage.getItem(ROOM_KEY); if(okRoom(saved)){ room = saved; roomV = ""; } }catch(e){} }
   if(!okRoom(room)){
     const a = new Uint8Array(12); crypto.getRandomValues(a);
     room = "p260-" + Array.from(a, x => "abcdefghijkmnpqrstuvwxyz23456789"[x % 32]).join("");
-    history.replaceState(null, "", "#room=" + room);
   }
+  const V_KEY = "piston-roomv:" + room;
+  if(!roomV){ try{ const sv = localStorage.getItem(V_KEY); if(sv) roomV = sv; }catch(e){} }
+  const setHash = () => history.replaceState(null, "", "#room=" + room + (roomV ? "&v=" + roomV : ""));
+  setHash();
   try{ localStorage.setItem(ROOM_KEY, room); }catch(e){} // reopen the same room next time
   const TOPIC = "https://ntfy.sh/" + room;
 
@@ -818,10 +833,29 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const enc = new TextEncoder(), dec = new TextDecoder();
   const b64 = u8 => { let s = ""; u8.forEach(c => s += String.fromCharCode(c)); return btoa(s); };
   const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  // passphrase -> encryption key (first 32 bytes, same as before) + check value (next 32 bytes)
   async function deriveKey(pass){
-    const base = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveKey"]);
-    return crypto.subtle.deriveKey({ name: "PBKDF2", salt: enc.encode("piston-room:" + room), iterations: 150000, hash: "SHA-256" },
-      base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    const base = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveBits"]);
+    const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode("piston-room:" + room), iterations: 150000, hash: "SHA-256" }, base, 512));
+    const key = await crypto.subtle.importKey("raw", bits.slice(0, 32), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+    const h = new Uint8Array(await crypto.subtle.digest("SHA-256", bits.slice(32)));
+    const v = b64(h.slice(0, 9)).replace(/\+/g, "-").replace(/\//g, "_");
+    return { key, v };
+  }
+  // look at what is already in the room: can this passphrase read it?
+  async function probe(key){
+    try{
+      const r = await fetch(TOPIC + "/json?poll=1&since=all", { cache: "no-store" });
+      if(!r.ok) return "error";
+      const msgs = (await r.text()).split("\n").map(l => { try{ return JSON.parse(l); }catch(e){ return null; } })
+        .filter(m => m && m.event === "message" && typeof m.message === "string" && m.message.startsWith("e1:")).slice(-10);
+      if(!msgs.length) return "empty";
+      for(const m of msgs){
+        const p = m.message.split(":");
+        try{ await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(p[1]) }, key, unb64(p[2])); return "ok"; }catch(e){}
+      }
+      return "bad";
+    }catch(e){ return "error"; }
   }
   async function seal(obj){
     const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -845,8 +879,21 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   async function enter(pass, keep){
     if(!window.crypto || !crypto.subtle){ $("gErr").textContent = "このブラウザでは合言葉の機能を使えません"; return false; }
     $("gGo").disabled = true; $("gErr").textContent = "確認しています…";
-    try{ cryptoKey = await deriveKey(pass); }
+    let d;
+    try{ d = await deriveKey(pass); }
     catch(e){ $("gGo").disabled = false; $("gErr").textContent = "うまくいきませんでした。もう一度試してください"; return false; }
+    const wrong = () => {
+      $("gGo").disabled = false;
+      try{ localStorage.removeItem(PASS_KEY); }catch(e){}
+      if(gate.hidden) showGate();
+      $("gErr").textContent = adminCfg ? "合言葉が違うか、変更されています" : "合言葉が違います"; $("gPass").value = "";
+      return false;
+    };
+    if(roomV){ if(d.v !== roomV) return wrong(); }
+    else if(await probe(d.key) === "bad") return wrong();
+    cryptoKey = d.key;
+    if(!roomV){ roomV = d.v; setHash(); }
+    try{ localStorage.setItem(V_KEY, roomV); }catch(e){}
     $("gGo").disabled = false;
     try{ if(keep) localStorage.setItem(PASS_KEY, pass); else localStorage.removeItem(PASS_KEY); }catch(e){}
     $("gPass").value = "";
@@ -855,6 +902,11 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     connect();
     return true;
   }
+  $("gNew").addEventListener("click", () => {
+    if(!confirm("新しい部屋を作ります。今の部屋の相手とはつながらなくなるので、新しいリンクと合言葉を伝え直してください。よろしいですか？")) return;
+    try{ localStorage.removeItem(ROOM_KEY); }catch(e){}
+    location.href = location.pathname;   // no room in the link -> a new room is made
+  });
   $("gShow").addEventListener("change", () => { $("gPass").classList.toggle("masked", !$("gShow").checked); });
   $("gGo").addEventListener("click", () => {
     const p = $("gPass").value.normalize("NFKC").trim();
@@ -868,6 +920,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     showGate("合言葉を入れ直してください");
   });
   function startGate(){
+    $("gNew").parentElement.hidden = !!adminCfg;   // when the passphrase is managed from admin.html, it is changed there
     let saved = null; try{ saved = localStorage.getItem(PASS_KEY); }catch(e){}
     if(saved && saved.length >= 4) enter(saved, true); else showGate();
   }
@@ -1322,6 +1375,39 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     // the server forgets messages after a while: if nothing came back, re-post the last signed status (it cannot be altered)
     setTimeout(() => chain.then(() => {
       if(!seen && best) fetch(topic, { method: "POST", body: JSON.stringify({ s: best.s, t: best.t, sig: best.sig }) }).catch(() => {});
+    }), 5000);
+
+    // passphrase settings from admin.html (signed the same way)
+    const ch = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode("cfg:" + jwk.x)));
+    const ctopic = "https://ntfy.sh/pcfg-" + Array.from(ch, b => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+    const okCfg = async m => {
+      try{ return !!m && typeof m.page === "string" && okRoom(m.room) && typeof m.v === "string" && Number.isFinite(m.t) && typeof m.sig === "string"
+             && await crypto.subtle.verify({ name: "Ed25519" }, pub, unb64(m.sig), enc.encode(["cfg", m.page, m.room, m.v, m.t].join("|"))); }catch(e){ return false; }
+    };
+    if(adminCfg && adminCfg.k && adminCfg.k !== jwk.x){ adminCfg = null; try{ localStorage.removeItem(CFG_LS); }catch(e){} }
+    let cseen = false, cchain = Promise.resolve();
+    const csrc = new EventSource(ctopic + "/sse?since=all");
+    csrc.onmessage = e => {
+      let w; try{ w = JSON.parse(e.data); }catch(x){ return; }
+      if(w.event !== "message") return;
+      cchain = cchain.then(async () => {
+        let m; try{ m = JSON.parse(w.message); }catch(x){ return; }
+        if(!m || m.page !== PAGE_ID || !(await okCfg(m))) return;
+        cseen = true;
+        if(adminCfg && m.t <= adminCfg.t) return;
+        const changed = !adminCfg || adminCfg.room !== m.room || adminCfg.v !== m.v;
+        adminCfg = { page: m.page, room: m.room, v: m.v, t: m.t, sig: m.sig, k: jwk.x };
+        try{ localStorage.setItem(CFG_LS, JSON.stringify(adminCfg)); }catch(x){}
+        if(changed){   // new passphrase: move to its room and ask for it
+          try{ localStorage.removeItem(PASS_KEY); }catch(x){}
+          location.replace(location.pathname + "#room=" + m.room + "&v=" + m.v);
+          setTimeout(() => location.reload(), 50);
+        }
+      });
+    };
+    setTimeout(() => cchain.then(() => {
+      if(!cseen && adminCfg && adminCfg.sig && adminCfg.k === jwk.x)
+        fetch(ctopic, { method: "POST", body: JSON.stringify({ page: adminCfg.page, room: adminCfg.room, v: adminCfg.v, t: adminCfg.t, sig: adminCfg.sig }) }).catch(() => {});
     }), 5000);
   }
   siteStatus();
