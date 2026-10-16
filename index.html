@@ -785,7 +785,18 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     if(prev.running && !state.running && state.base > 0 && prev.go){
       const a = loadRecs(), id = "s" + prev.go;
       if(!a.some(x => x.id === id)){
-        a.push({ id, at: prev.go, strokes: state.base, dur: state.dur, bpm: prev.bpm / prev.bps,
+        // strokes are counted when they start, so the last one may be unfinished:
+        // keep the exact number of strokes actually made (with the fraction) for the average
+        let cyc = null;
+        const cur = state;
+        try{
+          state = prev;
+          const tS = prev.go + cur.dur;
+          if(tS >= prev.startAt){ const p = beatPhase(tS); cyc = strokesAt(tS) - 1 + (p - Math.floor(p)); }
+        }catch(e){ cyc = null; }
+        state = cur;
+        if(cyc !== null) cyc = Math.round(Math.max(cur.base - 1, Math.min(cur.base, cyc)) * 100) / 100;
+        a.push({ id, at: prev.go, strokes: state.base, cyc, dur: state.dur, bpm: prev.bpm / prev.bps,
                  pat: (BYID[prev.pat] || BYID.steady).name, page: state.name, memo: "" });
         saveRecs(a);
       }
@@ -1071,8 +1082,9 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const cv = $("wave"), g2 = cv.getContext("2d");
   const WINDOW = 3000, samples = [];
   let win = WINDOW;
+  const DPR = () => Math.min(2, window.devicePixelRatio || 1);   // enough for sharp lines, lighter to draw
   function sizeCanvas(){
-    const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect(), d = DPR();
     cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d));
   }
   window.addEventListener("resize", sizeCanvas); sizeCanvas();
@@ -1082,7 +1094,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   }
   // a rod that pushes up from a cylinder at the bottom, moving with the same position as the wave
   function rr(x, y, w, h, r){ g2.beginPath(); g2.moveTo(x + r, y); g2.arcTo(x + w, y, x + w, y + h, r); g2.arcTo(x + w, y + h, x, y + h, r); g2.arcTo(x, y + h, x, y, r); g2.arcTo(x, y, x + w, y, r); g2.closePath(); }
-  function drawPiston(w, h, d, pos){
+  function drawPiston(w, h, d, pos, prev){
     const cx = w * 0.82, pw = Math.min(w * 0.17, 64 * d);
     const baseTop = h * 0.66, baseBot = h - 8 * d;           // cylinder at the bottom
     const hi = h * 0.1, lo = baseTop - h * 0.12;              // travel of the rod's top end
@@ -1094,6 +1106,15 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     // rod
     const rg = g2.createLinearGradient(cx - rodW / 2, 0, cx + rodW / 2, 0);
     rg.addColorStop(0, "#B21FC4"); rg.addColorStop(0.45, "#FF8BEA"); rg.addColorStop(1, "#B21FC4");
+    // faint trail between the last frame and this one, so fast strokes look smooth instead of jumpy
+    if(typeof prev === "number" && Math.abs(prev - pos) > 0.15){
+      g2.save(); g2.globalAlpha = 0.14; g2.fillStyle = "#FF8BEA";
+      for(let k = 1; k <= 3; k++){
+        const pp = pos + (prev - pos) * k / 4, tp = lo + (hi - lo) * (pp + 1) / 2;
+        rr(cx - rodW / 2, tp, rodW, baseTop - tp + 4 * d, 3 * d); g2.fill();
+      }
+      g2.restore();
+    }
     rr(cx - rodW / 2, tip, rodW, baseTop - tip + 4 * d, 3 * d); g2.fillStyle = rg; g2.fill();
     // cylinder
     rr(cx - pw / 2, baseTop, pw, baseBot - baseTop, 8 * d);
@@ -1103,8 +1124,13 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     // collar where the rod comes out
     g2.fillStyle = "rgba(255,255,255,.35)"; rr(cx - rodW / 2 - 5 * d, baseTop - 3 * d, rodW + 10 * d, 6 * d, 3 * d); g2.fill();
   }
-  function draw(){
-    const now = Date.now();
+  let lastFrame = 0, frameDt = 16.7, prevPos = 0;
+  function draw(ft){
+    // the picture reaches the screen a little after it is drawn: draw where the piston WILL be at that moment
+    if(lastFrame && ft) frameDt += (Math.min(100, ft - lastFrame) - frameDt) * 0.1;
+    lastFrame = ft || 0;
+    const lead = Math.min(60, Math.max(16, frameDt * 1.5 + 8));
+    const now = Date.now() + lead;
     // sample every 4 ms (not just once per frame) so fast speeds still draw a clean wave
     let ts = samples.length ? samples[samples.length - 1][0] + 4 : now;
     if(now - ts > 400) ts = now - 400;
@@ -1114,7 +1140,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     const sp = state.running && now >= state.go ? state.bpm * mult(now) : state.bpm;
     const target = Math.min(WINDOW, Math.max(1200, 4 * 60000 / Math.max(1, sp)));
     win += (target - win) * 0.06;
-    const w = cv.width, h = cv.height, d = window.devicePixelRatio || 1;
+    const w = cv.width, h = cv.height, d = DPR();
     const headX = w * 0.58, amp = h * 0.3, mid = h / 2;
     g2.clearRect(0, 0, w, h);
     g2.strokeStyle = "rgba(255,255,255,.08)"; g2.lineWidth = 1 * d;
@@ -1129,9 +1155,10 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
       started ? g2.lineTo(x, yy) : g2.moveTo(x, yy); started = true;
     });
     g2.stroke();
-    const last = samples[samples.length - 1];
-    const yy = mid - last[1] * amp;
-    drawPiston(w, h, d, last[1]);
+    const pos = position(now);
+    const yy = mid - pos * amp;
+    drawPiston(w, h, d, pos, prevPos);
+    prevPos = pos;
     g2.fillStyle = "#EE3DE0";
     g2.beginPath(); g2.arc(headX, yy, 6 * d, 0, Math.PI * 2); g2.fill();
     moveHead(now);
@@ -1144,6 +1171,12 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   const numJ = x => (Number(x) || 0).toLocaleString("ja-JP");
   const toHalf = x => String(x).replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const WD = "日月火水木金土";
+  // average speed: strokes actually made ÷ time (old automatic records: the last, unfinished stroke is left out)
+  function avgOf(r){
+    if(!(r.dur > 0)) return "";
+    const n = typeof r.cyc === "number" ? r.cyc : r.manual ? r.strokes : Math.max(0, r.strokes - 1);
+    return Math.round(n / (r.dur / 60000));
+  }
   function rRender(){
     const a = loadRecs().sort((x, y) => y.at - x.at);
     const durSum = a.reduce((s, x) => s + (Number(x.dur) || 0), 0);
@@ -1171,7 +1204,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
       acts.append(eb, db);
       const info = document.createElement("div"); info.className = "r-info";
       const parts = [pad2(d.getHours()) + ":" + pad2(d.getMinutes())];
-      if(r.dur > 0){ parts.push(fmt(r.dur)); parts.push("平均 " + Math.round(r.strokes / (r.dur / 60000)) + " 回／分"); }
+      if(r.dur > 0){ parts.push(fmt(r.dur)); parts.push("平均 " + avgOf(r) + " 回／分"); }
       if(r.pat) parts.push(r.pat);
       if(r.page) parts.push(r.page);
       if(r.manual) parts.push("手入力");
@@ -1214,7 +1247,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     a.forEach(r => {
       const d = new Date(r.at);
       const dt = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
-      rows.push([dt, r.strokes, r.dur ? Math.round(r.dur / 1000) : "", r.dur ? Math.round(r.strokes / (r.dur / 60000)) : "", r.pat || "", r.page || "", r.memo || ""].map(q).join(","));
+      rows.push([dt, r.strokes, r.dur ? Math.round(r.dur / 1000) : "", r.dur ? avgOf(r) : "", r.pat || "", r.page || "", r.memo || ""].map(q).join(","));
     });
     const url = URL.createObjectURL(new Blob(["\ufeff" + rows.join("\r\n")], { type: "text/csv" }));
     const link = document.createElement("a"); link.href = url; link.download = "piston-records.csv";
