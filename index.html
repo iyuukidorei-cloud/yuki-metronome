@@ -29,6 +29,10 @@ main{max-width:32rem; margin:0 auto; padding:0 .85rem 1.5rem}
 .g-in input{width:100%; font:inherit; font-size:1.1rem; color:var(--ink); background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:12px; padding:.65rem .8rem}
 .g-in input:focus{outline:2px solid var(--accent); border-color:transparent}
 .g-err{min-height:1.2em; font-size:.8rem; color:#FFB3D9; margin:.5rem 0 .3rem}
+.blocked{position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:2rem; text-align:center;
+  background:rgba(22,12,48,.94); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px)}
+.blocked[hidden]{display:none}
+.blocked p{margin:0; font-size:1.2rem; font-weight:700; color:var(--ink)}
 .live{position:absolute; right:0; top:.95rem; font-size:.75rem; font-weight:700; white-space:nowrap; padding:.2rem .55rem; border-radius:999px; background:var(--raise)}
 h1{font-size:1.15rem; font-weight:700; margin:0}
 .title{font:inherit; font-weight:700; color:var(--ink); background:transparent; border:0; padding:.1rem .3rem; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; max-width:100%}
@@ -169,7 +173,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
 <main>
   <header class="top">
     <button class="lock" id="lockBtn" type="button" aria-label="合言葉を入れ直す">🔒</button>
-    <span class="live" aria-label="起動中">🟢起動中</span>
+    <span class="live" id="liveBadge" aria-label="起動中">🟢起動中</span>
     <h1><button class="title" id="title" type="button" aria-label="名称を変更"><span id="name">ゆき専用</span><span class="pen" aria-hidden="true">✎</span></button></h1>
     <p class="status" id="status">接続しています…</p>
   </header>
@@ -275,6 +279,10 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     <button class="c-save" id="cSave" type="button">保存して使う</button>
   </div>
 </div>
+</div>
+
+<div class="blocked" id="blocked" role="alertdialog" aria-modal="true" aria-labelledby="blkMsg" hidden>
+  <p id="blkMsg">接続できませんでした。</p>
 </div>
 
 <script>
@@ -541,7 +549,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     }
   }
   function tick(){
-    if(!state.running){ if(pending.length) cancelPending(-Infinity); return; }
+    if(!state.running || blocked){ if(pending.length) cancelPending(-Infinity); return; }
     const now = Date.now();
     if(pending.length > 40) pending = pending.filter(p => p.t > now - 1000);
     const sa = stopAt();
@@ -817,6 +825,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   function showGate(msg){
     $("gErr").textContent = msg || ""; $("gPass").value = "";
     gate.hidden = false; document.body.style.overflow = "hidden";
+    if(blocked) gate.setAttribute("inert", "");
     setTimeout(() => $("gPass").focus(), 50);
   }
   async function enter(pass, keep){
@@ -874,7 +883,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
                    lim: d.lim === "time" || d.lim === "count" ? d.lim : "none", limV: Math.max(0, Number(d.limV) || 0),
                    cus: cleanCus(d.cus), cusSm: !!d.cusSm, sh: cleanSh(d.sh), adj: Math.max(-MAX, Math.min(MAX, Math.round(Number(d.adj) || 0))), v };
     const keys = ["bpm","running","startAt","bps","base","go","dur","name","pat","lim","limV","cus","cusSm","sh","adj","ph"];
-    if(keys.some(k => JSON.stringify(next[k]) !== JSON.stringify(state[k]))){ const prev = state; state = next; afterChange(prev); render(); } else state.v = v;
+    if(keys.some(k => JSON.stringify(next[k]) !== JSON.stringify(state[k]))){ const prev = state; state = next; afterChange(prev); render(); if(blocked) haltLocal(); } else state.v = v;
   }
   function connect(){
     if(!window.EventSource){ el.status.textContent = "このブラウザでは共有できません"; return; }
@@ -1220,6 +1229,61 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   rRender();
 
   render();
+  // ---------- 🔴停止中: the whole screen is locked until it is switched back to 🟢起動中 ----------
+  let blocked = false;
+  function haltLocal(){ // stop on this device only (everyone gets the same status, so all devices stop)
+    if(!state.running) return;
+    const now = Date.now(), prev = state;
+    state = { ...state, running: false, startAt: 0, go: 0, ph: 0, base: strokesAt(now), dur: prev.go && now > prev.go ? now - prev.go : 0, v: prev.v + 0.5 };
+    cancelPending(-Infinity); afterChange(prev); render();
+  }
+  function setBlocked(b){
+    if(b === blocked) return;
+    blocked = b;
+    $("blocked").hidden = !b;
+    document.querySelectorAll("main, .cwrap").forEach(x => b ? x.setAttribute("inert", "") : x.removeAttribute("inert"));
+    if(b){ if(document.activeElement) document.activeElement.blur(); document.body.style.overflow = "hidden"; haltLocal(); }
+    else if(Array.from(document.querySelectorAll(".cwrap")).every(x => x.hidden)) document.body.style.overflow = "";
+  }
+
+  // ---------- site status 🟢起動中 / 🔴停止中, switched from admin.html ----------
+  // only messages signed with the key in status-key.json (made from the admin password) are accepted
+  async function siteStatus(){
+    const badge = $("liveBadge"), LS = "piston-site-status";
+    const showS = m => { const on = !m || m.s === "on"; badge.textContent = on ? "🟢起動中" : "🔴停止中"; badge.setAttribute("aria-label", on ? "起動中" : "停止中"); setBlocked(!on); };
+    let jwk = null;
+    try{ const r = await fetch("status-key.json?ts=" + Date.now(), { cache: "no-store" }); if(r.ok) jwk = await r.json(); }catch(e){}
+    if(!jwk || !jwk.x || !window.crypto || !crypto.subtle) return;
+    let pub;
+    try{ pub = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x }, { name: "Ed25519" }, false, ["verify"]); }catch(e){ return; }
+    const h = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(jwk.x)));
+    const topic = "https://ntfy.sh/pstat-" + Array.from(h, b => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+    let best = null; try{ best = JSON.parse(localStorage.getItem(LS) || "null"); }catch(e){}
+    if(best && best.k !== jwk.x) best = null;
+    showS(best);
+    const ok = async m => {
+      try{ return !!m && (m.s === "on" || m.s === "off") && Number.isFinite(m.t) && typeof m.sig === "string"
+             && await crypto.subtle.verify({ name: "Ed25519" }, pub, unb64(m.sig), enc.encode(m.s + "|" + m.t)); }catch(e){ return false; }
+    };
+    let seen = false, chain = Promise.resolve();
+    const src = new EventSource(topic + "/sse?since=all");
+    src.onmessage = e => {
+      let w; try{ w = JSON.parse(e.data); }catch(x){ return; }
+      if(w.event !== "message") return;
+      chain = chain.then(async () => {
+        let m; try{ m = JSON.parse(w.message); }catch(x){ return; }
+        if(!(await ok(m))) return;
+        seen = true;
+        if(!best || m.t > best.t){ best = { s: m.s, t: m.t, sig: m.sig, k: jwk.x }; try{ localStorage.setItem(LS, JSON.stringify(best)); }catch(x){} showS(best); }
+      });
+    };
+    // the server forgets messages after a while: if nothing came back, re-post the last signed status (it cannot be altered)
+    setTimeout(() => chain.then(() => {
+      if(!seen && best) fetch(topic, { method: "POST", body: JSON.stringify({ s: best.s, t: best.t, sig: best.sig }) }).catch(() => {});
+    }), 5000);
+  }
+  siteStatus();
+
   startGate();
 })();
 </script>

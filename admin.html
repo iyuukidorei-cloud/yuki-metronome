@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E1545">
+<meta name="robots" content="noindex">
+<title>起動状態の切り替え</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔑</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg1:#1E1545; --bg2:#3B1A5E; --card1:#47246F; --card2:#5A2581; --raise:rgba(255,255,255,.08); --line:rgba(255,255,255,.14);
+  --ink:#FFFFFF; --muted:#CBB7EA; --accent:#EE3DE0; --accent-soft:rgba(238,61,224,.22);
+  color-scheme:dark; box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  background:var(--bg1);
+}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0; min-height:100vh; color:var(--ink); background:linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 100%);
+  font-family:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif; line-height:1.6}
+main{max-width:30rem; margin:0 auto; padding:1rem .9rem 2rem}
+h1{font-size:1.15rem; text-align:center; margin:.3rem 0 1rem}
+.card{background:linear-gradient(160deg,var(--card1),var(--card2)); border-radius:22px; box-shadow:0 8px 24px rgba(10,0,30,.35); padding:1.1rem 1rem; margin-bottom:1rem}
+.card[hidden]{display:none}
+h2{font-size:1rem; margin:0 0 .4rem}
+p{margin:.2rem 0 .8rem; font-size:.88rem; color:var(--muted)}
+label.f{display:grid; gap:.3rem; font-size:.8rem; color:var(--muted); margin-bottom:.7rem}
+input[type=password],input[type=text]{width:100%; font:inherit; font-size:1.05rem; color:var(--ink); background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:12px; padding:.6rem .75rem}
+input:focus{outline:2px solid var(--accent); border-color:transparent}
+.chk{display:flex; align-items:center; gap:.5rem; font-size:.85rem; margin:.2rem 0 .8rem}
+.chk input{width:1.1rem; height:1.1rem; accent-color:var(--accent)}
+.btn{font:inherit; font-weight:700; border:0; border-radius:999px; padding:.7rem 1.3rem; cursor:pointer; color:#fff;
+  background:radial-gradient(circle at 35% 30%,#FF8BEA 0%,var(--accent) 50%,#B21FC4 100%)}
+.btn:disabled{opacity:.5}
+.ghost{font:inherit; font-size:.85rem; border:0; border-radius:999px; padding:.45rem .9rem; cursor:pointer; color:var(--ink); background:var(--raise)}
+.err{min-height:1.2em; color:#FFB3D9; font-size:.82rem; margin:.4rem 0 0}
+.now{text-align:center; font-size:2rem; font-weight:700; margin:.4rem 0 .2rem}
+.sub{text-align:center; font-size:.8rem; color:var(--muted); margin-bottom:1rem}
+.switch{display:grid; grid-template-columns:1fr 1fr; gap:.7rem}
+.switch button{font:inherit; font-weight:700; font-size:1.05rem; padding:1.1rem .5rem; border-radius:18px; cursor:pointer; color:var(--ink);
+  border:2px solid var(--line); background:rgba(0,0,0,.18)}
+.switch button[aria-pressed="true"]{border-color:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); background:rgba(238,61,224,.18)}
+ol{margin:.2rem 0 .8rem; padding-left:1.3rem; font-size:.88rem; color:var(--muted)}
+ol li{margin-bottom:.3rem}
+.row{display:flex; gap:.5rem; flex-wrap:wrap; justify-content:center; margin-top:.4rem}
+button:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+  <h1>起動状態の切り替え</h1>
+
+  <section class="card" id="loading"><p>読み込んでいます…</p></section>
+
+  <!-- first time: make the admin password and the key file -->
+  <section class="card" id="setup" hidden>
+    <h2>はじめに：管理用パスワードを決める</h2>
+    <p>このパスワードを知っている人だけが、サイトの「🟢起動中／🔴停止中」を切り替えられます。8文字以上で、推測されにくいものにしてください。</p>
+    <label class="f">管理用パスワード<input type="password" id="sPass1" autocomplete="new-password"></label>
+    <label class="f">もう一度<input type="password" id="sPass2" autocomplete="new-password"></label>
+    <button class="btn" id="sMake" type="button">鍵ファイルを作る</button>
+    <p class="err" id="sErr"></p>
+    <div id="sDone" hidden>
+      <h2 style="margin-top:1rem">鍵ファイルをGitHubに上げる</h2>
+      <ol>
+        <li>下のボタンで <b>status-key.json</b> を保存します。</li>
+        <li>GitHubのリポジトリで「Add file」→「Upload files」から、このファイルを上げて「Commit changes」。</li>
+        <li>数分待ってから、このページを開き直します。</li>
+      </ol>
+      <div class="row"><button class="btn" id="sSave" type="button">status-key.json を保存</button></div>
+    </div>
+  </section>
+
+  <!-- sign in -->
+  <section class="card" id="login" hidden>
+    <h2>管理用パスワード</h2>
+    <label class="f"><input type="password" id="lPass" autocomplete="current-password" enterkeyhint="go" aria-label="管理用パスワード"></label>
+    <label class="chk"><input type="checkbox" id="lKeep" checked> この端末で覚えておく</label>
+    <button class="btn" id="lGo" type="button">入る</button>
+    <p class="err" id="lErr"></p>
+    <div class="row"><button class="ghost" id="lReset" type="button">パスワードを忘れた／作り直す</button></div>
+  </section>
+
+  <!-- the switch -->
+  <section class="card" id="panel" hidden>
+    <div class="now" id="now">—</div>
+    <div class="sub" id="nowSub">サイトに表示されている状態</div>
+    <div class="switch">
+      <button type="button" id="setOn" aria-pressed="false">🟢 起動中にする</button>
+      <button type="button" id="setOff" aria-pressed="false">🔴 停止中にする</button>
+    </div>
+    <p class="err" id="pErr"></p>
+    <div class="row"><button class="ghost" id="pOut" type="button">この端末からログアウト</button></div>
+  </section>
+
+  <p style="text-align:center; font-size:.75rem">切り替えは、開いているサイトに数秒で反映されます。</p>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const enc = new TextEncoder();
+  const SALT = "piston-site-admin-v1", PASS_LS = "piston-admin-pass";
+  const PKCS8_ED25519 = [0x30,0x2e,0x02,0x01,0x00,0x30,0x05,0x06,0x03,0x2b,0x65,0x70,0x04,0x22,0x04,0x20];
+  const b64 = u8 => { let s = ""; new Uint8Array(u8).forEach(c => s += String.fromCharCode(c)); return btoa(s); };
+  const show = id => ["loading", "setup", "login", "panel"].forEach(x => $(x).hidden = x !== id);
+  async function sha256hex(s){ const h = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s))); return Array.from(h, b => b.toString(16).padStart(2, "0")).join(""); }
+
+  // password -> Ed25519 signing key (same password gives the same key on any device)
+  async function keyFrom(pass){
+    const base = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveBits"]);
+    const seed = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode(SALT), iterations: 310000, hash: "SHA-256" }, base, 256));
+    const der = new Uint8Array(PKCS8_ED25519.length + 32); der.set(PKCS8_ED25519); der.set(seed, PKCS8_ED25519.length);
+    const priv = await crypto.subtle.importKey("pkcs8", der, { name: "Ed25519" }, true, ["sign"]);
+    const jwk = await crypto.subtle.exportKey("jwk", priv);
+    return { priv, x: jwk.x };
+  }
+  async function supported(){
+    try{ await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]); return true; }catch(e){ return false; }
+  }
+
+  let fileKey = null, signKey = null, topic = "", es = null, latest = null;
+
+  async function loadFile(){
+    try{ const r = await fetch("status-key.json?ts=" + Date.now(), { cache: "no-store" }); if(!r.ok) return null; const j = await r.json(); return j && j.x ? j : null; }
+    catch(e){ return null; }
+  }
+
+  // ----- setup -----
+  let madeX = null;
+  $("sMake").addEventListener("click", async () => {
+    const a = $("sPass1").value, b = $("sPass2").value;
+    if(a.length < 8){ $("sErr").textContent = "8文字以上にしてください"; return; }
+    if(a !== b){ $("sErr").textContent = "2回の入力が一致しません"; return; }
+    $("sMake").disabled = true; $("sErr").textContent = "作っています…";
+    try{ const k = await keyFrom(a); madeX = k.x; $("sErr").textContent = ""; $("sDone").hidden = false; }
+    catch(e){ $("sErr").textContent = "作れませんでした。別のブラウザで試してください"; }
+    $("sMake").disabled = false;
+  });
+  $("sSave").addEventListener("click", () => {
+    if(!madeX) return;
+    const blob = new Blob([JSON.stringify({ alg: "Ed25519", x: madeX }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = "status-key.json"; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  });
+
+  // ----- login -----
+  async function signIn(pass, keep){
+    $("lErr").textContent = "確認しています…"; $("lGo").disabled = true;
+    try{
+      const k = await keyFrom(pass);
+      if(k.x !== fileKey.x){ $("lErr").textContent = "パスワードが違います"; $("lGo").disabled = false; try{ localStorage.removeItem(PASS_LS); }catch(e){} return; }
+      signKey = k.priv;
+      try{ if(keep) localStorage.setItem(PASS_LS, pass); else localStorage.removeItem(PASS_LS); }catch(e){}
+      $("lErr").textContent = ""; openPanel();
+    }catch(e){ $("lErr").textContent = "確認できませんでした"; }
+    $("lGo").disabled = false;
+  }
+  $("lGo").addEventListener("click", () => { const p = $("lPass").value; if(p) signIn(p, $("lKeep").checked); });
+  $("lPass").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); $("lGo").click(); } });
+  $("lReset").addEventListener("click", () => { show("setup"); });
+
+  // ----- panel -----
+  function render(){
+    const on = !latest || latest.s === "on";
+    $("now").textContent = latest ? (on ? "🟢起動中" : "🔴停止中") : "🟢起動中";
+    $("nowSub").textContent = latest ? "サイトに表示されている状態" : "まだ切り替えたことはありません（初期状態は起動中）";
+    $("setOn").setAttribute("aria-pressed", String(on)); $("setOff").setAttribute("aria-pressed", String(!on));
+  }
+  function openPanel(){
+    show("panel"); render();
+    if(es) es.close();
+    es = new EventSource(topic + "/sse?since=all");
+    es.onmessage = e => {
+      let w; try{ w = JSON.parse(e.data); }catch(x){ return; }
+      if(w.event !== "message") return;
+      let m; try{ m = JSON.parse(w.message); }catch(x){ return; }
+      if(m && (m.s === "on" || m.s === "off") && (!latest || m.t > latest.t)){ latest = m; render(); }
+    };
+  }
+  async function setStatus(s){
+    $("pErr").textContent = "";
+    try{
+      const t = Date.now();
+      const sig = await crypto.subtle.sign({ name: "Ed25519" }, signKey, enc.encode(s + "|" + t));
+      const r = await fetch(topic, { method: "POST", body: JSON.stringify({ s, t, sig: b64(sig) }) });
+      if(!r.ok) throw new Error(r.status);
+      latest = { s, t }; render();
+    }catch(e){ $("pErr").textContent = "切り替えられませんでした。通信状態を確認してください"; }
+  }
+  $("setOn").addEventListener("click", () => setStatus("on"));
+  $("setOff").addEventListener("click", () => setStatus("off"));
+  $("pOut").addEventListener("click", () => { try{ localStorage.removeItem(PASS_LS); }catch(e){} signKey = null; $("lPass").value = ""; show("login"); });
+
+  (async () => {
+    if(!window.crypto || !crypto.subtle || !(await supported())){
+      $("loading").innerHTML = "<p>このブラウザは対応していません。新しいSafariかChromeで開いてください。</p>"; return;
+    }
+    fileKey = await loadFile();
+    if(!fileKey){ show("setup"); return; }
+    topic = "https://ntfy.sh/pstat-" + (await sha256hex(fileKey.x)).slice(0, 24);
+    let saved = null; try{ saved = localStorage.getItem(PASS_LS); }catch(e){}
+    show("login");
+    if(saved) signIn(saved, true);
+  })();
+})();
+</script>
+</body>
+</html>
