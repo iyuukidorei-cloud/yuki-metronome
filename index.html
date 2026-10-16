@@ -25,6 +25,10 @@ body{margin:0; color:var(--ink); background:linear-gradient(180deg,var(--bg1) 0%
   font-family:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif; line-height:1.5}
 main{max-width:32rem; margin:0 auto; padding:0 .85rem 1.5rem}
 .top{position:relative; padding:.9rem 5.2rem .6rem; text-align:center}
+.lock{position:absolute; left:0; top:.8rem; font-size:1rem; line-height:1; padding:.35rem .5rem; border:0; border-radius:999px; background:var(--raise); cursor:pointer}
+.g-in input{width:100%; font:inherit; font-size:1.1rem; color:var(--ink); background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:12px; padding:.65rem .8rem}
+.g-in input:focus{outline:2px solid var(--accent); border-color:transparent}
+.g-err{min-height:1.2em; font-size:.8rem; color:#FFB3D9; margin:.5rem 0 .3rem}
 .live{position:absolute; right:0; top:.95rem; font-size:.75rem; font-weight:700; white-space:nowrap; padding:.2rem .55rem; border-radius:999px; background:var(--raise)}
 h1{font-size:1.15rem; font-weight:700; margin:0}
 .title{font:inherit; font-weight:700; color:var(--ink); background:transparent; border:0; padding:.1rem .3rem; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; max-width:100%}
@@ -164,6 +168,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
 <body>
 <main>
   <header class="top">
+    <button class="lock" id="lockBtn" type="button" aria-label="合言葉を入れ直す">🔒</button>
     <span class="live" aria-label="起動中">🟢起動中</span>
     <h1><button class="title" id="title" type="button" aria-label="名称を変更"><span id="name">ゆき専用</span><span class="pen" aria-hidden="true">✎</span></button></h1>
     <p class="status" id="status">接続しています…</p>
@@ -225,6 +230,18 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     </div>
   </section>
 </main>
+
+<div class="cwrap" id="gate" hidden>
+<div class="cdlg" role="dialog" aria-modal="true" aria-labelledby="gTitle">
+  <h2 id="gTitle">合言葉</h2>
+  <p class="c-help">この部屋に入るための合言葉を入れてください。初めて使うときは、ここで決めた合言葉を、一緒に使う人にリンクとは別に伝えてください。合言葉が違う人は、中身を見ることも操作することもできません。</p>
+  <label class="g-in"><input id="gPass" type="password" autocomplete="off" autocapitalize="off" enterkeyhint="go" placeholder="合言葉（4文字以上）" aria-label="合言葉"></label>
+  <label class="c-sm"><input type="checkbox" id="gShow"> 文字を表示する</label>
+  <label class="c-sm"><input type="checkbox" id="gKeep" checked> この端末で覚えておく</label>
+  <p class="g-err" id="gErr"></p>
+  <div class="c-acts"><button class="c-save" id="gGo" type="button">入る</button></div>
+</div>
+</div>
 
 <div class="cwrap" id="shDlg" hidden>
 <div class="cdlg" role="dialog" aria-modal="true" aria-labelledby="shTitle">
@@ -368,13 +385,19 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   try{ localStorage.setItem(ROOM_KEY, room); }catch(e){} // reopen the same room next time
   const TOPIC = "https://ntfy.sh/" + room;
 
-  let state = { bpm: DEFAULT_BPM, running: false, startAt: 0, bps: 1, base: 0, go: 0, dur: 0, name: DEFAULT_NAME, pat: "steady", lim: "none", limV: 0, cus: loadCus(), cusSm: false, sh: loadSh(), adj: 0, v: 0 };
+  let state = { bpm: DEFAULT_BPM, running: false, startAt: 0, bps: 1, base: 0, go: 0, dur: 0, name: DEFAULT_NAME, pat: "steady", lim: "none", limV: 0, cus: loadCus(), cusSm: false, sh: loadSh(), adj: 0, ph: 0, v: 0 };
 
   // ---------- beat timing (segment = since last tempo/rhythm change) ----------
   const rate = () => state.bpm / 60000;
   const segOff = () => M(state.startAt - state.go);
-  const beatTime = n => state.go + Minv(segOff() + n / rate());
-  const beatPhase = t => (M(t - state.go) - segOff()) * rate();
+  // a segment can begin in the middle of a stroke (state.ph = fraction already done), so speed changes take effect at once
+  const n0 = () => state.ph > 0 ? 1 : 0;
+  const beatTime = n => state.go + Minv(segOff() + (n - state.ph) / rate());
+  const beatPhase = t => state.ph + (M(t - state.go) - segOff()) * rate();
+  function strokesAt(t){ // strokes started up to time t
+    if(!state.running || t < state.startAt) return state.base;
+    return state.base + Math.floor(beatPhase(t) + 1e-9) + (state.ph > 0 ? 0 : 1);
+  }
 
   // ---------- audio ----------
   let ctx = null, keepAlive = null;
@@ -489,16 +512,15 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     if(!state.running || !(state.limV > 0)) return 0;
     if(state.lim === "time") return state.go + state.limV * 60000;
     if(state.lim === "count"){
-      const k = (Math.round(state.limV) - state.base) * state.bps;
-      return k <= 0 ? state.startAt : beatTime(k);
+      const k = Math.round(state.limV) + 1 - state.base - (state.ph > 0 ? 0 : 1);
+      return k < n0() ? state.startAt : beatTime(k);
     }
     return 0;
   }
   function autoStop(at){
-    const ph = at <= state.startAt ? 0 : Math.ceil(beatPhase(at) - 1e-9);
-    const strokes = state.base + Math.ceil(ph / state.bps);
+    const strokes = strokesAt(at - 1);
     const prev = state;
-    state = { ...state, running: false, startAt: 0, go: 0, base: strokes, dur: Math.max(0, Math.round(at - prev.go)), v: prev.v + 0.5 };
+    state = { ...state, running: false, startAt: 0, go: 0, ph: 0, base: strokes, dur: Math.max(0, Math.round(at - prev.go)), v: prev.v + 0.5 };
     afterChange(prev); render();
     if(ctx){ click(ctx.currentTime + 0.02, -1); click(ctx.currentTime + 0.22, -1); }
     el.status.textContent = "自動ストップしました";
@@ -526,16 +548,16 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     if(sa && now >= sa){ autoStop(sa); return; }
     countdown(now);
     shuttleCue(now);
-    const key = [state.startAt, state.bpm, state.bps, state.pat, state.go, state.adj, JSON.stringify(state.sh), JSON.stringify(state.cus), state.cusSm].join(":");
+    const key = [state.startAt, state.bpm, state.ph, state.base, state.pat, state.go, state.adj, JSON.stringify(state.sh), JSON.stringify(state.cus), state.cusSm].join(":");
     if(key !== genKey){
       genKey = key; cancelPending(now + 2); lastT = Math.min(lastT, now);
-      nextBeat = now <= state.startAt ? 0 : Math.max(0, Math.ceil(beatPhase(now)));
+      nextBeat = now <= state.startAt ? n0() : Math.max(n0(), Math.ceil(beatPhase(now) - 1e-9));
     }
     const horizon = now + Math.min(600, Math.max(150, latencyMs() + 120));
     for(let guard = 0; guard < 50; guard++){
       const t = beatTime(nextBeat);
       if(t >= horizon || (sa && t >= sa - 1)) break;
-      const n = nextBeat, bps = state.bps;
+      const n = nextBeat, bps = 1, total = state.base + n + (state.ph > 0 ? 0 : 1);
       const level = (bps === 2 && n % 2 === 0) ? 1 : 0;
       if(t >= now - 20 && t > lastT + 5){
         lastT = t;
@@ -544,10 +566,11 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
           const at = audioAt(t);
           if(state.pat === "shuttle" && state.sh.scale){
             const gap = 60 / (state.bpm * mult(t));               // seconds until the next note
-            node = beep(at, SCALE[n % SCALE.length], Math.min(0.28, gap * 0.75), n % SCALE.length === SCALE.length - 1);
+            const si = (total - 1) % SCALE.length;
+            node = beep(at, SCALE[si], Math.min(0.28, gap * 0.75), si === SCALE.length - 1);
           }else node = click(at, level);
         }
-        const timer = setTimeout(() => flash(n, level, bps), Math.max(0, t - Date.now()));
+        const timer = setTimeout(() => flash(total, level), Math.max(0, t - Date.now()));
         pending.push({ t, node, timer });
       }
       nextBeat++;
@@ -555,14 +578,14 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   }
   setInterval(tick, 25);
 
-  function flash(n, level, bps){
+  function flash(n, level){
     if(!state.running) return;
     el.lamp.classList.toggle("accent", level > 0);
     el.lamp.classList.add("on");
     setTimeout(() => el.lamp.classList.remove("on"), Math.min(90, 60000 / (state.bpm * mult(Date.now())) * 0.45));
     el.count.classList.remove("cd");
-    const total = state.base + Math.floor(n / bps) + 1;
-    el.count.textContent = "合計 " + total + " 回" + (bps === 2 ? "・" + (n % 2 === 0 ? "押す" : "引く") : "");
+    const total = n;
+    el.count.textContent = "合計 " + total + " 回";
   }
 
   // ---------- rhythm bar ----------
@@ -768,8 +791,64 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
 
   // ---------- sync (ntfy.sh) ----------
   let sending = Promise.resolve();
+  // ---------- passphrase: messages are encrypted, so only people who know it can read or control ----------
+  const PASS_KEY = "piston-pass:" + room;
+  let cryptoKey = null, es = null, okCount = 0, badCount = 0, rx = Promise.resolve();
+  const enc = new TextEncoder(), dec = new TextDecoder();
+  const b64 = u8 => { let s = ""; u8.forEach(c => s += String.fromCharCode(c)); return btoa(s); };
+  const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  async function deriveKey(pass){
+    const base = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey({ name: "PBKDF2", salt: enc.encode("piston-room:" + room), iterations: 150000, hash: "SHA-256" },
+      base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  }
+  async function seal(obj){
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, cryptoKey, enc.encode(JSON.stringify(obj))));
+    return "e1:" + b64(iv) + ":" + b64(ct);
+  }
+  async function unseal(msg){ // string = ok, null = not encrypted (ignored), undefined = wrong passphrase
+    if(typeof msg !== "string" || !msg.startsWith("e1:")) return null;
+    const parts = msg.split(":"); if(parts.length !== 3) return undefined;
+    try{ return dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(parts[1]) }, cryptoKey, unb64(parts[2]))); }
+    catch(e){ return undefined; }
+  }
+  const gate = $("gate");
+  function showGate(msg){
+    $("gErr").textContent = msg || ""; $("gPass").value = "";
+    gate.hidden = false; document.body.style.overflow = "hidden";
+    setTimeout(() => $("gPass").focus(), 50);
+  }
+  async function enter(pass, keep){
+    if(!window.crypto || !crypto.subtle){ $("gErr").textContent = "このブラウザでは合言葉の機能を使えません"; return false; }
+    $("gGo").disabled = true; $("gErr").textContent = "確認しています…";
+    try{ cryptoKey = await deriveKey(pass); }
+    catch(e){ $("gGo").disabled = false; $("gErr").textContent = "うまくいきませんでした。もう一度試してください"; return false; }
+    $("gGo").disabled = false;
+    try{ if(keep) localStorage.setItem(PASS_KEY, pass); else localStorage.removeItem(PASS_KEY); }catch(e){}
+    gate.hidden = true; document.body.style.overflow = "";
+    connect();
+    return true;
+  }
+  $("gShow").addEventListener("change", () => { $("gPass").type = $("gShow").checked ? "text" : "password"; });
+  $("gGo").addEventListener("click", () => {
+    const p = $("gPass").value;
+    if(p.length < 4){ $("gErr").textContent = "4文字以上で入れてください"; return; }
+    enter(p, $("gKeep").checked);
+  });
+  $("gPass").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); $("gGo").click(); } });
+  $("lockBtn").addEventListener("click", () => {
+    try{ localStorage.removeItem(PASS_KEY); }catch(e){}
+    showGate("合言葉を入れ直してください");
+  });
+  function startGate(){
+    let saved = null; try{ saved = localStorage.getItem(PASS_KEY); }catch(e){}
+    if(saved && saved.length >= 4) enter(saved, true); else showGate();
+  }
+
   function send(s){
-    sending = sending.then(() => fetch(TOPIC, { method: "POST", body: JSON.stringify(s) }))
+    if(!cryptoKey) return;
+    sending = sending.then(() => seal(s)).then(body => fetch(TOPIC, { method: "POST", body }))
       .then(r => { if(r && !r.ok) throw new Error(r.status); })
       .catch(() => { el.status.textContent = "送信できませんでした。通信状態を確認してください"; });
   }
@@ -787,39 +866,46 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     if(!d || typeof d !== "object") return;
     const v = Number(d.v) || 0;
     if(v < state.v) return;
-    const bps = d.bps === 2 ? 2 : 1;
+    const bps = 1;
     const next = { bpm: fit(Math.round(Number(d.bpm) || DEFAULT_BPM), bps), running: !!d.running,
-                   startAt: Number(d.startAt) || 0, bps, base: Math.max(0, Math.floor(Number(d.base) || 0)),
+                   startAt: Number(d.startAt) || 0, bps, base: Math.max(0, Math.floor(Number(d.base) || 0)), ph: Math.min(0.999999, Math.max(0, Number(d.ph) || 0)),
                    go: Number(d.go) || Number(d.startAt) || 0, dur: Math.max(0, Number(d.dur) || 0),
                    name: cleanName(d.name) || DEFAULT_NAME, pat: BYID[d.pat] ? d.pat : "steady",
                    lim: d.lim === "time" || d.lim === "count" ? d.lim : "none", limV: Math.max(0, Number(d.limV) || 0),
                    cus: cleanCus(d.cus), cusSm: !!d.cusSm, sh: cleanSh(d.sh), adj: Math.max(-MAX, Math.min(MAX, Math.round(Number(d.adj) || 0))), v };
-    const keys = ["bpm","running","startAt","bps","base","go","dur","name","pat","lim","limV","cus","cusSm","sh","adj"];
+    const keys = ["bpm","running","startAt","bps","base","go","dur","name","pat","lim","limV","cus","cusSm","sh","adj","ph"];
     if(keys.some(k => JSON.stringify(next[k]) !== JSON.stringify(state[k]))){ const prev = state; state = next; afterChange(prev); render(); } else state.v = v;
   }
   function connect(){
     if(!window.EventSource){ el.status.textContent = "このブラウザでは共有できません"; return; }
-    const es = new EventSource(TOPIC + "/sse?since=all");
-    es.onopen = () => { el.status.textContent = "共有中：このリンクを開いている全員にそろって反映されます"; };
+    if(es){ try{ es.close(); }catch(e){} }
+    okCount = 0; badCount = 0;
+    const key = cryptoKey;
+    es = new EventSource(TOPIC + "/sse?since=all");
+    const WRONG = "合言葉が違うようです。🔒から入れ直してください";
+    es.onopen = () => { el.status.textContent = badCount && !okCount ? WRONG : "共有中（合言葉で保護されています）"; };
     es.onmessage = e => {
       let m; try{ m = JSON.parse(e.data); }catch(err){ return; }
-      if(m.event === "message" && m.message) receive(m.message);
+      if(m.event !== "message" || !m.message) return;
+      rx = rx.then(async () => {   // decrypt one at a time so the order is kept
+        if(key !== cryptoKey) return;
+        const plain = await unseal(m.message);
+        if(plain === undefined){ badCount++; if(!okCount) el.status.textContent = WRONG; return; }
+        if(plain === null) return;
+        okCount++; receive(plain);
+      });
     };
-    es.onerror = () => { el.status.textContent = "再接続しています…"; };
+    es.onerror = () => { el.status.textContent = badCount && !okCount ? WRONG : "再接続しています…"; };
   }
 
   // ---------- changes keep the total and start at the next stroke ----------
-  function carry(){
+  function carry(){ // start a new segment right now, continuing from where the current stroke is
     const now = Date.now();
-    if(!state.running || now < state.startAt) return { startAt: state.startAt, base: state.base };
-    const k = Math.ceil(beatPhase(now) / state.bps) * state.bps;
-    return { startAt: Math.round(beatTime(k)), base: state.base + k / state.bps };
+    if(!state.running || now < state.startAt) return { startAt: state.startAt, base: state.base, ph: state.ph };
+    const p = beatPhase(now); let fr = p - Math.floor(p); if(fr < 1e-6) fr = 1e-6;
+    return { startAt: now, base: strokesAt(now), ph: fr };
   }
-  function doneStrokes(){
-    const now = Date.now();
-    if(!state.running || now < state.startAt) return state.base;
-    return state.base + Math.floor(beatPhase(now) / state.bps) + 1;
-  }
+  function doneStrokes(){ return strokesAt(Date.now()); }
   function fit(v, bps){
     const lo = Math.ceil(MIN / bps) * bps, hi = Math.floor(MAX / bps) * bps;
     return Math.min(hi, Math.max(lo, Math.round(v / bps) * bps));
@@ -894,10 +980,10 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     ensureAudio();
     if(state.running){
       const now = Date.now();
-      apply({ ...state, running: false, startAt: 0, base: doneStrokes(), dur: state.go && now > state.go ? now - state.go : 0, go: 0 });
+      apply({ ...state, running: false, startAt: 0, ph: 0, base: doneStrokes(), dur: state.go && now > state.go ? now - state.go : 0, go: 0 });
     }else{
       const go = Date.now() + 3800; // 3-2-1 countdown, then the first stroke
-      apply({ ...state, running: true, startAt: go, go, base: 0, dur: 0, adj: 0 });
+      apply({ ...state, running: true, startAt: go, go, base: 0, ph: 0, dur: 0, adj: 0 });
     }
   });
   const LIM_DEFAULT = { time: 10, count: 500 };
@@ -975,14 +1061,15 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   // ---------- waveform ----------
   const cv = $("wave"), g2 = cv.getContext("2d");
   const WINDOW = 3000, samples = [];
+  let win = WINDOW;
   function sizeCanvas(){
     const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
     cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d));
   }
   window.addEventListener("resize", sizeCanvas); sizeCanvas();
-  function position(now){
-    if(!state.running || now < state.startAt) return 0;
-    return Math.sin(2 * Math.PI * beatPhase(now) / state.bps);
+  function position(t){
+    if(!state.running || t < state.go || t < state.startAt) return 0;
+    return Math.sin(2 * Math.PI * beatPhase(t));
   }
   // a rod that pushes up from a cylinder at the bottom, moving with the same position as the wave
   function rr(x, y, w, h, r){ g2.beginPath(); g2.moveTo(x + r, y); g2.arcTo(x + w, y, x + w, y + h, r); g2.arcTo(x + w, y + h, x, y + h, r); g2.arcTo(x, y + h, x, y, r); g2.arcTo(x, y, x + w, y, r); g2.closePath(); }
@@ -1009,8 +1096,15 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   }
   function draw(){
     const now = Date.now();
-    samples.push([now, position(now)]);
+    // sample every 4 ms (not just once per frame) so fast speeds still draw a clean wave
+    let ts = samples.length ? samples[samples.length - 1][0] + 4 : now;
+    if(now - ts > 400) ts = now - 400;
+    for(; ts <= now; ts += 4) samples.push([ts, position(ts)]);
     while(samples.length && samples[0][0] < now - WINDOW) samples.shift();
+    // show about 4 strokes: the time span shrinks smoothly as the speed goes up
+    const sp = state.running && now >= state.go ? state.bpm * mult(now) : state.bpm;
+    const target = Math.min(WINDOW, Math.max(1200, 4 * 60000 / Math.max(1, sp)));
+    win += (target - win) * 0.06;
     const w = cv.width, h = cv.height, d = window.devicePixelRatio || 1;
     const headX = w * 0.58, amp = h * 0.3, mid = h / 2;
     g2.clearRect(0, 0, w, h);
@@ -1019,10 +1113,11 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     const grad = g2.createLinearGradient(0, 0, headX, 0);
     grad.addColorStop(0, "rgba(255,111,181,.25)"); grad.addColorStop(1, "#EE3DE0");
     g2.strokeStyle = grad; g2.lineWidth = 3 * d; g2.lineJoin = "round"; g2.lineCap = "round";
-    g2.beginPath();
-    samples.forEach(([t, y], i) => {
-      const x = headX - (now - t) / WINDOW * headX, yy = mid - y * amp;
-      i ? g2.lineTo(x, yy) : g2.moveTo(x, yy);
+    g2.beginPath(); let started = false;
+    samples.forEach(([t, y]) => {
+      if(now - t > win) return;
+      const x = headX - (now - t) / win * headX, yy = mid - y * amp;
+      started ? g2.lineTo(x, yy) : g2.moveTo(x, yy); started = true;
     });
     g2.stroke();
     const last = samples[samples.length - 1];
@@ -1125,7 +1220,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   rRender();
 
   render();
-  connect();
+  startGate();
 })();
 </script>
 </body>
