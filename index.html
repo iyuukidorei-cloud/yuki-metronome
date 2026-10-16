@@ -27,9 +27,10 @@ main{max-width:32rem; margin:0 auto; padding:0 .85rem 1.5rem}
 .top{position:relative; padding:.9rem 5.2rem .6rem; text-align:center}
 .lock{position:absolute; left:0; top:.8rem; font-size:1rem; line-height:1; padding:.35rem .5rem; border:0; border-radius:999px; background:var(--raise); cursor:pointer}
 .g-in input{width:100%; font:inherit; font-size:1.1rem; color:var(--ink); background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:12px; padding:.65rem .8rem}
+.g-in input.masked{-webkit-text-security:disc; text-security:disc}
 .g-in input:focus{outline:2px solid var(--accent); border-color:transparent}
 .g-err{min-height:1.2em; font-size:.8rem; color:#FFB3D9; margin:.5rem 0 .3rem}
-.blocked{position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:2rem; text-align:center;
+.blocked{position:fixed; top:0; right:0; bottom:0; left:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:2rem; text-align:center;
   background:rgba(22,12,48,.94); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px)}
 .blocked[hidden]{display:none}
 .blocked p{margin:0; font-size:1.2rem; font-weight:700; color:var(--ink)}
@@ -80,7 +81,7 @@ h1{font-size:1.15rem; font-weight:700; margin:0}
 .pat.custom .pn{color:var(--accent2)}
 .cdlg{width:min(30rem,100%); max-height:calc(100vh - 2rem); max-height:calc(100dvh - 2rem); overflow:auto; border:0; border-radius:22px; padding:1.1rem 1rem 1rem;
   color:var(--ink); background:linear-gradient(160deg,var(--card1),var(--card2)); box-shadow:0 20px 60px rgba(0,0,0,.5)}
-.cwrap{position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:1rem; background:rgba(10,0,25,.65)}
+.cwrap{position:fixed; top:0; right:0; bottom:0; left:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:1rem; background:rgba(10,0,25,.65)}
 .cwrap[hidden]{display:none}
 .cdlg h2{margin:0 0 .3rem; font-size:1.1rem}
 .c-help{margin:0 0 .8rem; font-size:.8rem; color:var(--muted)}
@@ -239,9 +240,9 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
 <div class="cdlg" role="dialog" aria-modal="true" aria-labelledby="gTitle">
   <h2 id="gTitle">合言葉</h2>
   <p class="c-help">この部屋に入るための合言葉を入れてください。初めて使うときは、ここで決めた合言葉を、一緒に使う人にリンクとは別に伝えてください。合言葉が違う人は、中身を見ることも操作することもできません。</p>
-  <label class="g-in"><input id="gPass" type="password" autocomplete="off" autocapitalize="off" enterkeyhint="go" placeholder="合言葉（4文字以上）" aria-label="合言葉"></label>
+  <label class="g-in"><input id="gPass" class="masked" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="合言葉（4文字以上）" aria-label="合言葉"></label>
   <label class="c-sm"><input type="checkbox" id="gShow"> 文字を表示する</label>
-  <label class="c-sm"><input type="checkbox" id="gKeep" checked> この端末で覚えておく</label>
+  <label class="c-sm"><input type="checkbox" id="gKeep"> この端末で覚えておく（次から入力を省略）</label>
   <p class="g-err" id="gErr"></p>
   <div class="c-acts"><button class="c-save" id="gGo" type="button">入る</button></div>
 </div>
@@ -836,8 +837,9 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   function showGate(msg){
     $("gErr").textContent = msg || ""; $("gPass").value = "";
     gate.hidden = false; document.body.style.overflow = "hidden";
-    if(blocked) gate.setAttribute("inert", "");
-    setTimeout(() => $("gPass").focus(), 50);
+    document.querySelector("main").setAttribute("inert", "");   // nothing behind can be used until the passphrase is in
+    if(blocked) gate.setAttribute("inert", ""); else gate.removeAttribute("inert");
+    try{ $("gPass").focus({ preventScroll: true }); }catch(e){}
   }
   async function enter(pass, keep){
     if(!window.crypto || !crypto.subtle){ $("gErr").textContent = "このブラウザでは合言葉の機能を使えません"; return false; }
@@ -846,19 +848,22 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     catch(e){ $("gGo").disabled = false; $("gErr").textContent = "うまくいきませんでした。もう一度試してください"; return false; }
     $("gGo").disabled = false;
     try{ if(keep) localStorage.setItem(PASS_KEY, pass); else localStorage.removeItem(PASS_KEY); }catch(e){}
+    $("gPass").value = "";
     gate.hidden = true; document.body.style.overflow = "";
+    if(!blocked) document.querySelector("main").removeAttribute("inert");
     connect();
     return true;
   }
-  $("gShow").addEventListener("change", () => { $("gPass").type = $("gShow").checked ? "text" : "password"; });
+  $("gShow").addEventListener("change", () => { $("gPass").classList.toggle("masked", !$("gShow").checked); });
   $("gGo").addEventListener("click", () => {
-    const p = $("gPass").value;
+    const p = $("gPass").value.normalize("NFKC").trim();
     if(p.length < 4){ $("gErr").textContent = "4文字以上で入れてください"; return; }
     enter(p, $("gKeep").checked);
   });
   $("gPass").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); $("gGo").click(); } });
   $("lockBtn").addEventListener("click", () => {
     try{ localStorage.removeItem(PASS_KEY); }catch(e){}
+    cryptoKey = null; if(es){ try{ es.close(); }catch(e){} es = null; }
     showGate("合言葉を入れ直してください");
   });
   function startGate(){
@@ -874,6 +879,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
   }
   let sendTimer = null;
   function apply(next){
+    if(!cryptoKey){ if(gate.hidden) showGate("先に合言葉を入れてください"); return; }
     next.v = Date.now();
     const prev = state; state = next; afterChange(prev); render();
     clearTimeout(sendTimer); // bundle rapid changes (e.g. holding + or −) into one message
@@ -1275,6 +1281,7 @@ button:focus-visible, .tile:has(input:focus-visible){outline:3px solid var(--acc
     blocked = b;
     $("blocked").hidden = !b;
     document.querySelectorAll("main, .cwrap").forEach(x => b ? x.setAttribute("inert", "") : x.removeAttribute("inert"));
+    if(!b && !gate.hidden) document.querySelector("main").setAttribute("inert", "");
     if(b){ if(document.activeElement) document.activeElement.blur(); document.body.style.overflow = "hidden"; haltLocal(); }
     else if(Array.from(document.querySelectorAll(".cwrap")).every(x => x.hidden)) document.body.style.overflow = "";
   }
